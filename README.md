@@ -1,2 +1,2 @@
-# SSD-Tensorflow
-Port of SSD network to Tensorflow
+# research_models
+Experimental stuff!
