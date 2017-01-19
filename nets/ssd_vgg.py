@@ -13,27 +13,18 @@ Usage:
     outputs, end_points = ssd_vgg.ssd_vgg(inputs)
 @@ssd_vgg
 """
+import math
+import numpy as np
 import tensorflow as tf
+
 slim = tf.contrib.slim
 
 
-# =========================================================================== #
-# VGG based SSD300 implementation.
-# =========================================================================== #
-ssd_300_features = ['block4', 'block7', 'block8', 'block9', 'block10', 'block11']
-ssd_300_sizes = [[.1], [.2, .276], [.38, .461], [.56, .644], [.74, .825], [.92, 1.01]]
-ssd_300_ratios = [[1, 2, .5],
-                  [1, 2, .5, 3, 1./3],
-                  [1, 2, .5, 3, 1./3],
-                  [1, 2, .5, 3, 1./3],
-                  [1, 2, .5, 3, 1./3],
-                  [1, 2, .5, 3, 1./3]]
-ssd_300_normalizations = [20, -1, -1, -1, -1, -1]
-
-
-def multibox_layer(inputs, num_classes, size, ratio=[1],
-                   normalization=-1, bn_normalization=False,
-                   clip=True, interm_layer=0):
+def ssd_multibox_layer(inputs, num_classes, size, ratio=[1],
+                       normalization=-1, bn_normalization=False,
+                       clip=True, interm_layer=0):
+    """Construct a multibox layer, return a class and localization predictions.
+    """
     net = inputs
     if normalization > 0:
         net = tf.div(net, normalization)
@@ -46,6 +37,42 @@ def multibox_layer(inputs, num_classes, size, ratio=[1],
     num_loc_pred = num_anchors * 4
     loc_pred = slim.conv2d(net, num_loc_pred, [3, 3], scope='conv_loc')
     return cls_pred, loc_pred
+
+
+def ssd_default_boxes(feat_shape, size, ratio, dtype=np.float32):
+    """Computer ssd default boxes. Center, width and height.
+    """
+    # Similarly to SSD paper: ratio only applies to first size parameter.
+    num_anchors = len(size) + len(ratio) - 1
+    boxes = np.array((*feat_shape, num_anchors, 4))
+    for i in range(feat_shape[0]):
+        for j in range(feat_shape[1]):
+            for k, r in enumerate(ratio):
+                s = size[0]
+                boxes[i, j, k, :] = [(i+0.5) / feat_shape[0],
+                                     (j+0.5) / feat_shape[1],
+                                     s * math.sqrt(r),
+                                     s / math.sqrt(r)]
+            # Single box with different size.
+            s = size[1]
+            boxes[i, j, -1, :] = [(i+0.5) / feat_shape[0],
+                                  (j+0.5) / feat_shape[1],
+                                  s, s]
+    return boxes
+
+# =========================================================================== #
+# VGG based SSD300 implementation.
+# =========================================================================== #
+ssd_300_features = ['block4', 'block7', 'block8', 'block9', 'block10', 'block11']
+ssd_300_features_shapes = [(38, 38), (19, 19), (10, 10), (5, 5), (3, 3), (1, 1)]
+ssd_300_sizes = [[.1], [.2, .276], [.38, .461], [.56, .644], [.74, .825], [.92, 1.01]]
+ssd_300_ratios = [[1, 2, .5],
+                  [1, 2, .5, 3, 1./3],
+                  [1, 2, .5, 3, 1./3],
+                  [1, 2, .5, 3, 1./3],
+                  [1, 2, .5, 3, 1./3],
+                  [1, 2, .5, 3, 1./3]]
+ssd_300_normalizations = [20, -1, -1, -1, -1, -1]
 
 
 def ssd_300_vgg(inputs,
@@ -127,12 +154,12 @@ def ssd_300_vgg(inputs,
         localisations = {}
         for i, layer in enumerate(ssd_300_features):
             with tf.variable_scope(layer + '_box'):
-                p, l = multibox_layer(end_points[layer],
-                                      num_classes,
-                                      ssd_300_sizes[i],
-                                      ssd_300_ratios[i],
-                                      ssd_300_normalizations[i],
-                                      clip=True, interm_layer=0)
+                p, l = ssd_multibox_layer(end_points[layer],
+                                          num_classes,
+                                          ssd_300_sizes[i],
+                                          ssd_300_ratios[i],
+                                          ssd_300_normalizations[i],
+                                          clip=True, interm_layer=0)
             predictions[layer] = p
             localisations[layer] = l
 
