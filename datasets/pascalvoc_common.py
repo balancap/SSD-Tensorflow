@@ -1,11 +1,8 @@
 """Provides data for the Pascal VOC Dataset (images + annotations).
 """
 import os
-import sys
 
-import numpy as np
 import tensorflow as tf
-
 from datasets import dataset_utils
 
 slim = tf.contrib.slim
@@ -33,16 +30,17 @@ VOC_LABELS = {
     'tvmonitor': (20, 'Indoor'),
 }
 
-_FILE_PATTERN = 'voc_2007_%s.tfrecord'
-_SPLITS_TO_SIZES = {
+FILE_PATTERN = 'voc_2007_%s.tfrecord'
+SPLITS_TO_SIZES = {
     'train': 5011,
     'test': 4952,
 }
-_NUM_CLASSES = 20
+NUM_CLASSES = 20
 
 
-def get_split(split_name, dataset_dir, file_pattern=None, reader=None):
-    """Gets a dataset tuple with instructions for reading ImageNet.
+def get_split(split_name, dataset_dir, file_pattern, reader,
+              split_to_sizes, items_to_descriptions, num_classes):
+    """Gets a dataset tuple with instructions for reading Pascal VOC dataset.
 
     Args:
       split_name: A train/test split name.
@@ -58,61 +56,49 @@ def get_split(split_name, dataset_dir, file_pattern=None, reader=None):
     Raises:
         ValueError: if `split_name` is not a valid train/test split.
     """
-    if split_name not in _SPLITS_TO_SIZES:
+    if split_name not in split_to_sizes:
         raise ValueError('split name %s was not recognized.' % split_name)
-    if not file_pattern:
-        file_pattern = _FILE_PATTERN
     file_pattern = os.path.join(dataset_dir, file_pattern % split_name)
 
     # Allowing None in the signature so that dataset_factory can use the default.
     if reader is None:
         reader = tf.TFRecordReader
-
+    # Features in Pascal VOC TFRecords.
     keys_to_features = {
-        'image/encoded': tf.FixedLenFeature(
-                (), tf.string, default_value=''),
-        'image/format': tf.FixedLenFeature(
-                (), tf.string, default_value='jpeg'),
-        'image/class/label': tf.FixedLenFeature(
-                [], dtype=tf.int64, default_value=-1),
-        'image/class/text': tf.FixedLenFeature(
-                [], dtype=tf.string, default_value=''),
-        'image/object/bbox/xmin': tf.VarLenFeature(
-                dtype=tf.float32),
-        'image/object/bbox/ymin': tf.VarLenFeature(
-                dtype=tf.float32),
-        'image/object/bbox/xmax': tf.VarLenFeature(
-                dtype=tf.float32),
-        'image/object/bbox/ymax': tf.VarLenFeature(
-                dtype=tf.float32),
-        'image/object/class/label': tf.VarLenFeature(
-                dtype=tf.int64),
+        'image/encoded': tf.FixedLenFeature((), tf.string, default_value=''),
+        'image/format': tf.FixedLenFeature((), tf.string, default_value='jpeg'),
+        'image/height': tf.FixedLenFeature([1], tf.int64),
+        'image/width': tf.FixedLenFeature([1], tf.int64),
+        'image/channels': tf.FixedLenFeature([1], tf.int64),
+        'image/shape': tf.FixedLenFeature([3], tf.int64),
+        'image/object/bbox/xmin': tf.VarLenFeature(dtype=tf.float32),
+        'image/object/bbox/ymin': tf.VarLenFeature(dtype=tf.float32),
+        'image/object/bbox/xmax': tf.VarLenFeature(dtype=tf.float32),
+        'image/object/bbox/ymax': tf.VarLenFeature(dtype=tf.float32),
+        'image/object/bbox/label': tf.VarLenFeature(dtype=tf.int64),
     }
-
     items_to_handlers = {
         'image': slim.tfexample_decoder.Image('image/encoded', 'image/format'),
-        'label': slim.tfexample_decoder.Tensor('image/class/label'),
-        'label_text': slim.tfexample_decoder.Tensor('image/class/text'),
+        'shape': slim.tfexample_decoder.Tensor('image/shape'),
         'object/bbox': slim.tfexample_decoder.BoundingBox(
-                ['ymin', 'xmin', 'ymax', 'xmax'], 'image/object/bbox/'),
-        'object/label': slim.tfexample_decoder.Tensor('image/object/class/label'),
+                ['xmin', 'ymin', 'xmax', 'ymax'], 'image/object/bbox/'),
+        'object/label': slim.tfexample_decoder.Tensor('image/object/bbox/label'),
     }
-
     decoder = slim.tfexample_decoder.TFExampleDecoder(
-            keys_to_features, items_to_handlers)
+        keys_to_features, items_to_handlers)
 
     labels_to_names = None
     if dataset_utils.has_labels(dataset_dir):
         labels_to_names = dataset_utils.read_label_file(dataset_dir)
-    else:
-        labels_to_names = create_readable_names_for_imagenet_labels()
-        dataset_utils.write_label_file(labels_to_names, dataset_dir)
+    # else:
+    #     labels_to_names = create_readable_names_for_imagenet_labels()
+    #     dataset_utils.write_label_file(labels_to_names, dataset_dir)
 
     return slim.dataset.Dataset(
             data_sources=file_pattern,
             reader=reader,
             decoder=decoder,
-            num_samples=_SPLITS_TO_SIZES[split_name],
-            items_to_descriptions=_ITEMS_TO_DESCRIPTIONS,
-            num_classes=_NUM_CLASSES,
+            num_samples=split_to_sizes[split_name],
+            items_to_descriptions=items_to_descriptions,
+            num_classes=num_classes,
             labels_to_names=labels_to_names)

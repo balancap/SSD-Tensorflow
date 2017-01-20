@@ -5,7 +5,7 @@ from datasets import pascalvoc_common
 
 slim = tf.contrib.slim
 
-FILE_PATTERN = 'voc_2007_%s.tfrecord'
+FILE_PATTERN = 'voc_2012_%s.tfrecord'
 ITEMS_TO_DESCRIPTIONS = {
     'image': 'A color image of varying height and width.',
     'shape': 'Shape of the image',
@@ -13,8 +13,7 @@ ITEMS_TO_DESCRIPTIONS = {
     'object/label': 'A list of labels, one per each object.',
 }
 SPLITS_TO_SIZES = {
-    'train': 5011,
-    'test': 4952,
+    'train': 17125,
 }
 NUM_CLASSES = 20
 
@@ -43,3 +42,4 @@ def get_split(split_name, dataset_dir, file_pattern=None, reader=None):
                                       SPLITS_TO_SIZES,
                                       ITEMS_TO_DESCRIPTIONS,
                                       NUM_CLASSES)
+
