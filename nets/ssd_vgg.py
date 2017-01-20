@@ -45,6 +45,7 @@ def ssd_default_boxes(feat_shape, size, ratio, dtype=np.float32):
     # Similarly to SSD paper: ratio only applies to first size parameter.
     num_anchors = len(size) + len(ratio) - 1
     boxes = np.array((*feat_shape, num_anchors, 4))
+    # Note: aware this implementation is hideous.
     for i in range(feat_shape[0]):
         for j in range(feat_shape[1]):
             for k, r in enumerate(ratio):
