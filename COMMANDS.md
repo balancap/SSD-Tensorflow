@@ -9,12 +9,12 @@ python tf_convert_data.py \
 rm events* graph* model* checkpoint
 mv events* graph* model* checkpoint ./idsianet_log6
 
-DATASET_DIR=/media/paul/DataExt4/VOC2012/Dataset/trainval/
-OUTPUT_DIR=/media/paul/DataExt4/VOC2012/Dataset/
+DATASET_DIR=/media/paul/DataExt4/VOC2007/Dataset/trainval/
+OUTPUT_DIR=/media/paul/DataExt4/VOC2007/Dataset/
 python tf_convert_data.py \
     --dataset_name=pascalvoc \
     --dataset_dir=${DATASET_DIR} \
-    --output_name=voc_2012_trainval \
+    --output_name=voc_2007_trainval \
     --output_dir=${OUTPUT_DIR}
 
 # =========================================================================== #

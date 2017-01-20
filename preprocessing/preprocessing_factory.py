@@ -20,7 +20,6 @@ from __future__ import print_function
 
 import tensorflow as tf
 
-from preprocessing import gtsrb_32_preprocessing
 # from preprocessing import cifarnet_preprocessing
 from preprocessing import inception_preprocessing
 from preprocessing import vgg_preprocessing
@@ -44,11 +43,6 @@ def get_preprocessing(name, is_training=False):
       ValueError: If Preprocessing `name` is not recognized.
     """
     preprocessing_fn_map = {
-        'cifarnet': gtsrb_32_preprocessing,
-        'idsianet': gtsrb_32_preprocessing,
-        'atrousnet': gtsrb_32_preprocessing,
-        'atrousnet_same': gtsrb_32_preprocessing,
-        'atrousnet_valid': gtsrb_32_preprocessing,
         'vgg': vgg_preprocessing,
         'vgg_a': vgg_preprocessing,
         'vgg_16': vgg_preprocessing,

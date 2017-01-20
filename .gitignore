@@ -1,2 +1,5 @@
 ssd-tensorflow.sublime-workspace
 datasets/__pycache__/
+nets/__pycache__/
+notebooks/.ipynb_checkpoints/
+preprocessing/__pycache__/

@@ -42,7 +42,7 @@ import tensorflow as tf
 import xml.etree.ElementTree as ET
 
 from datasets.dataset_utils import int64_feature, float_feature, bytes_feature
-from datasets.pascalvoc import VOC_LABELS
+from datasets.pascalvoc_common import VOC_LABELS
 
 DIRECTORY_ANNOTATIONS = 'Annotations/'
 DIRECTORY_IMAGES = 'JPEGImages/'
@@ -64,15 +64,15 @@ def _process_image(directory, name):
     image_data = tf.gfile.FastGFile(filename, 'r').read()
 
     # Read the XML annotation file.
-    filename = directory + DIRECTORY_ANNOTATIONS + name + '.xml'
+    filename = os.path.join(directory, DIRECTORY_ANNOTATIONS, name + '.xml')
     tree = ET.parse(filename)
     root = tree.getroot()
 
     # Image shape.
     size = root.find('size')
-    shape = (int(size.find('height').text),
+    shape = [int(size.find('height').text),
              int(size.find('width').text),
-             int(size.find('depth').text))
+             int(size.find('depth').text)]
     # Find annotations.
     bboxes = []
     labels = []
@@ -125,6 +125,7 @@ def _convert_to_example(image_data, labels, labels_text, bboxes, shape):
             'image/height': int64_feature(shape[0]),
             'image/width': int64_feature(shape[1]),
             'image/channels': int64_feature(shape[2]),
+            'image/shape': int64_feature(shape),
             'image/object/bbox/xmin': float_feature(xmin),
             'image/object/bbox/xmax': float_feature(xmax),
             'image/object/bbox/ymin': float_feature(ymin),
@@ -168,7 +169,8 @@ def run(dataset_dir, output_dir, name='voc_train', shuffling=False):
         print('Dataset files already exist. Exiting without re-creating them.')
         return
     # Dataset filenames, and shuffling.
-    filenames = sorted(os.listdir(dataset_dir + DIRECTORY_ANNOTATIONS))
+    path = os.path.join(dataset_dir, DIRECTORY_ANNOTATIONS)
+    filenames = sorted(os.listdir(path))
     if shuffling:
         random.seed(12345)
         random.shuffle(filenames)
