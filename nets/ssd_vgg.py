@@ -17,6 +17,8 @@ import math
 import numpy as np
 import tensorflow as tf
 
+from nets import custom_layers
+
 slim = tf.contrib.slim
 
 
@@ -27,7 +29,7 @@ def ssd_multibox_layer(inputs, num_classes, size, ratio=[1],
     """
     net = inputs
     if normalization > 0:
-        net = tf.div(net, normalization)
+        net = custom_layers.l2_normalization(net, scaling=True)
     # Number of anchors.
     num_anchors = len(size) + len(ratio) - 1
 
@@ -101,24 +103,24 @@ def ssd_300_vgg(inputs,
     with tf.variable_scope(scope, 'ssd_300_vgg', [inputs]):
         # Original VGG-16 blocks.
         net = slim.repeat(inputs, 2, slim.conv2d, 64, [3, 3], scope='conv1')
-        net = slim.max_pool2d(net, [2, 2], scope='pool1')
         end_points['block1'] = net
+        net = slim.max_pool2d(net, [2, 2], scope='pool1')
         # Block 2.
         net = slim.repeat(net, 2, slim.conv2d, 128, [3, 3], scope='conv2')
-        net = slim.max_pool2d(net, [2, 2], scope='pool2')
         end_points['block2'] = net
+        net = slim.max_pool2d(net, [2, 2], scope='pool2')
         # Block 3.
         net = slim.repeat(net, 3, slim.conv2d, 256, [3, 3], scope='conv3')
-        net = slim.max_pool2d(net, [2, 2], scope='pool3')
         end_points['block3'] = net
+        net = slim.max_pool2d(net, [2, 2], scope='pool3')
         # Block 4.
         net = slim.repeat(net, 3, slim.conv2d, 512, [3, 3], scope='conv4')
-        net = slim.max_pool2d(net, [2, 2], scope='pool4')
         end_points['block4'] = net
+        net = slim.max_pool2d(net, [2, 2], scope='pool4')
         # Block 5.
         net = slim.repeat(net, 3, slim.conv2d, 512, [3, 3], scope='conv5')
-        net = slim.max_pool2d(net, [2, 2], scope='pool5')
         end_points['block5'] = net
+        net = slim.max_pool2d(net, [3, 3], 1, scope='pool5')
 
         # Additional SSD blocks.
         # Block 6: let's dilate the hell out of it!
@@ -142,12 +144,12 @@ def ssd_300_vgg(inputs,
         end_point = 'block10'
         with tf.variable_scope(end_point):
             net = slim.conv2d(net, 128, [1, 1], scope='conv1x1')
-            net = slim.conv2d(net, 256, [3, 3], scope='conv3x3')
+            net = slim.conv2d(net, 256, [3, 3], scope='conv3x3', padding='VALID')
         end_points[end_point] = net
         end_point = 'block11'
         with tf.variable_scope(end_point):
             net = slim.conv2d(net, 128, [1, 1], scope='conv1x1')
-            net = slim.conv2d(net, 256, [3, 3], scope='conv3x3')
+            net = slim.conv2d(net, 256, [3, 3], scope='conv3x3', padding='VALID')
         end_points[end_point] = net
 
         # Prediction and localisations layers.
@@ -180,9 +182,11 @@ def ssd_300_vgg_arg_scope(weight_decay=0.0005):
     with slim.arg_scope([slim.conv2d, slim.fully_connected],
                         activation_fn=tf.nn.relu,
                         weights_regularizer=slim.l2_regularizer(weight_decay),
+                        weights_initializer=tf.contrib.layers.xavier_initializer(),
                         biases_initializer=tf.zeros_initializer):
-        with slim.arg_scope([slim.conv2d], padding='SAME') as arg_sc:
-            return arg_sc
+        with slim.arg_scope([slim.conv2d, slim.max_pool2d],
+                            padding='SAME') as sc:
+            return sc
 
 
 # =========================================================================== #
@@ -199,10 +203,13 @@ def ssd_300_vgg_caffe_scope(caffe_scope):
     """
     # Default network arg scope.
     with slim.arg_scope([slim.conv2d],
-                        padding='SAME',
                         activation_fn=tf.nn.relu,
                         weights_initializer=caffe_scope.conv_weights_init(),
-                        biases_initializer=caffe_scope.conv_biases_init()) as sc:
+                        biases_initializer=caffe_scope.conv_biases_init()):
         with slim.arg_scope([slim.fully_connected],
-                            activation_fn=tf.nn.relu) as sc:
-            return sc
+                            activation_fn=tf.nn.relu):
+            with slim.arg_scope([custom_layers.l2_normalization],
+                                scale_initializer=caffe_scope.l2_norm_scale_init()):
+                with slim.arg_scope([slim.conv2d, slim.max_pool2d],
+                                    padding='SAME') as sc:
+                    return sc

@@ -143,7 +143,7 @@ def _random_crop(image_list, crop_height, crop_width):
         image = image_list[i]
         asserts.append(rank_assertions[i])
         shape = control_flow_ops.with_dependencies([rank_assertions[i]],
-                                                                                             tf.shape(image))
+                                                   tf.shape(image))
         height = shape[0]
         width = shape[1]
 
@@ -172,7 +172,7 @@ def _random_crop(image_list, crop_height, crop_width):
             [], maxval=max_offset_width, dtype=tf.int32)
 
     return [_crop(image, offset_height, offset_width,
-                                crop_height, crop_width) for image in image_list]
+                  crop_height, crop_width) for image in image_list]
 
 
 def _central_crop(image_list, crop_height, crop_width):
@@ -196,7 +196,7 @@ def _central_crop(image_list, crop_height, crop_width):
         offset_width = (image_width - crop_width) / 2
 
         outputs.append(_crop(image, offset_height, offset_width,
-                                                 crop_height, crop_width))
+                             crop_height, crop_width))
     return outputs
 
 
@@ -256,8 +256,8 @@ def _smallest_size_at_least(height, width, smallest_side):
     smallest_side = tf.to_float(smallest_side)
 
     scale = tf.cond(tf.greater(height, width),
-                                    lambda: smallest_side / width,
-                                    lambda: smallest_side / height)
+                    lambda: smallest_side / width,
+                    lambda: smallest_side / height)
     new_height = tf.to_int32(height * scale)
     new_width = tf.to_int32(width * scale)
     return new_height, new_width
@@ -282,7 +282,7 @@ def _aspect_preserving_resize(image, smallest_side):
     new_height, new_width = _smallest_size_at_least(height, width, smallest_side)
     image = tf.expand_dims(image, 0)
     resized_image = tf.image.resize_bilinear(image, [new_height, new_width],
-                                                                                     align_corners=False)
+                                             align_corners=False)
     resized_image = tf.squeeze(resized_image)
     resized_image.set_shape([None, None, 3])
     return resized_image
@@ -346,18 +346,18 @@ def preprocess_image(image, output_height, output_width, is_training=False,
     """Preprocesses the given image.
 
     Args:
-        image: A `Tensor` representing an image of arbitrary size.
-        output_height: The height of the image after preprocessing.
-        output_width: The width of the image after preprocessing.
-        is_training: `True` if we're preprocessing the image for training and
-            `False` otherwise.
-        resize_side_min: The lower bound for the smallest side of the image for
-            aspect-preserving resizing. If `is_training` is `False`, then this value
-            is used for rescaling.
-        resize_side_max: The upper bound for the smallest side of the image for
-            aspect-preserving resizing. If `is_training` is `False`, this value is
-            ignored. Otherwise, the resize side is sampled from
-                [resize_size_min, resize_size_max].
+      image: A `Tensor` representing an image of arbitrary size.
+      output_height: The height of the image after preprocessing.
+      output_width: The width of the image after preprocessing.
+      is_training: `True` if we're preprocessing the image for training and
+        `False` otherwise.
+      resize_side_min: The lower bound for the smallest side of the image for
+        aspect-preserving resizing. If `is_training` is `False`, then this value
+        is used for rescaling.
+      resize_side_max: The upper bound for the smallest side of the image for
+        aspect-preserving resizing. If `is_training` is `False`, this value is
+         ignored. Otherwise, the resize side is sampled from
+         [resize_size_min, resize_size_max].
 
     Returns:
         A preprocessed image.

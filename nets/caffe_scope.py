@@ -37,30 +37,44 @@ class CaffeScope(object):
         # Layers collection.
         self.layers['convolution'] = [i for i, l in enumerate(self.caffe_layers)
                                       if l.type == 'Convolution']
-        # Layers counters.
-        self.counters['conv_weights'] = 0
-        self.counters['conv_biases'] = 0
+        self.layers['l2_normalization'] = [i for i, l in enumerate(self.caffe_layers)
+                                           if l.type == 'Normalize']
 
     def conv_weights_init(self):
         def _initializer(shape, dtype, partition_info=None):
-            idx = self.layers['convolution'][self.counters['conv_weights']]
+            counter = self.counters.get(self.conv_weights_init, 0)
+            idx = self.layers['convolution'][counter]
             layer = self.caffe_layers[idx]
             # Weights: reshape and transpose dimensions.
             w = np.array(layer.blobs[0].data)
             w = np.reshape(w, layer.blobs[0].shape.dim)
             w = np.transpose(w, (2, 3, 1, 0))
-            self.counters['conv_weights'] += 1
+            self.counters[self.conv_weights_init] = counter + 1
             print('Load weights from convolution layer:', layer.name, w.shape)
             return tf.cast(w, dtype)
         return _initializer
 
     def conv_biases_init(self):
         def _initializer(shape, dtype, partition_info=None):
-            idx = self.layers['convolution'][self.counters['conv_biases']]
+            counter = self.counters.get(self.conv_biases_init, 0)
+            idx = self.layers['convolution'][counter]
             layer = self.caffe_layers[idx]
-            # Weights: reshape and transpose dimensions.
+            # Biases data...
             b = np.array(layer.blobs[1].data)
-            self.counters['conv_biases'] += 1
+            self.counters[self.conv_biases_init] = counter + 1
             print('Load biases from convolution layer:', layer.name, b.shape)
             return tf.cast(b, dtype)
+        return _initializer
+
+    def l2_norm_scale_init(self):
+        def _initializer(shape, dtype, partition_info=None):
+            counter = self.counters.get(self.l2_norm_scale_init, 0)
+            idx = self.layers['l2_normalization'][counter]
+            layer = self.caffe_layers[idx]
+            # Scaling parameter.
+            s = np.array(layer.blobs[0].data)
+            s = np.reshape(s, layer.blobs[0].shape.dim)
+            self.counters[self.l2_norm_scale_init] = counter + 1
+            print('Load scaling from L2 normalization layer:', layer.name, s.shape)
+            return tf.cast(s, dtype)
         return _initializer

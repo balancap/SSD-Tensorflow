@@ -52,7 +52,8 @@ def get_preprocessing(name, is_training=False):
         'xception': inception_preprocessing,
         'xception_keras': inception_preprocessing,
         'dception': inception_preprocessing,
-      }
+        'ssd_300_vgg': vgg_preprocessing,
+    }
 
     if name not in preprocessing_fn_map:
         raise ValueError('Preprocessing name [%s] was not recognized' % name)
