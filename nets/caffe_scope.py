@@ -21,8 +21,9 @@ class CaffeScope(object):
         self.counters = {}
         self.layers = {}
         self.caffe_layers = None
+        self.bgr_to_rgb = 0
 
-    def load(self, filename):
+    def load(self, filename, bgr_to_rgb=True):
         """Load weights from a .caffemodel file and initialize counters.
 
         Params:
@@ -39,6 +40,10 @@ class CaffeScope(object):
                                       if l.type == 'Convolution']
         self.layers['l2_normalization'] = [i for i, l in enumerate(self.caffe_layers)
                                            if l.type == 'Normalize']
+        # BGR to RGB convertion. Tries to find the first convolution with 3
+        # and exchange parameters.
+        if bgr_to_rgb:
+            self.bgr_to_rgb = 1
 
     def conv_weights_init(self):
         def _initializer(shape, dtype, partition_info=None):
@@ -49,6 +54,10 @@ class CaffeScope(object):
             w = np.array(layer.blobs[0].data)
             w = np.reshape(w, layer.blobs[0].shape.dim)
             w = np.transpose(w, (2, 3, 1, 0))
+            if self.bgr_to_rgb == 1 and w.shape[2] == 3:
+                print('Convert BGR to RGB in convolution layer:', layer.name)
+                w[:, :, (0, 1, 2)] = w[:, :, (2, 1, 0)]
+                self.bgr_to_rgb += 1
             self.counters[self.conv_weights_init] = counter + 1
             print('Load weights from convolution layer:', layer.name, w.shape)
             return tf.cast(w, dtype)
