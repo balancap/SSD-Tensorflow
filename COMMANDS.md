@@ -17,6 +17,21 @@ python tf_convert_data.py \
     --output_name=voc_2012_train \
     --output_dir=${OUTPUT_DIR}
 
+DEF_PATH=/media/paul/DataExt4/PascalVOC/training/ckpts/SSD_300x300_ft/deploy_tf.prototxt
+CAFFE_MODEL=/media/paul/DataExt4/PascalVOC/training/ckpts/SSD_300x300_ft/VGG_VOC0712Plus_SSD_300x300_ft_iter_160000.caffemodel
+python convert.py \
+    --caffemodel=${CAFFE_MODEL} \
+    --data-output-path=./ \
+    --code-output-path=./ \
+    ${DEF_PATH}
+
+
+CAFFE_MODEL=/media/paul/DataExt4/PascalVOC/training/ckpts/SSD_300x300_ft/ssd_300_vgg.caffemodel
+python caffe_to_tensorflow.py \
+    --model_name=ssd_300_vgg_caffe \
+    --num_classes=21 \
+    --caffemodel_path=${CAFFE_MODEL}
+
 # =========================================================================== #
 # Inception v3
 # =========================================================================== #

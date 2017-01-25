@@ -32,10 +32,10 @@ def ssd_multibox_layer(inputs, num_classes, size, ratio=[1],
     num_anchors = len(size) + len(ratio) - 1
 
     # Class and location predictions.
-    num_cls_pred = num_anchors * num_classes
-    cls_pred = slim.conv2d(net, num_cls_pred, [3, 3], scope='conv_cls')
     num_loc_pred = num_anchors * 4
     loc_pred = slim.conv2d(net, num_loc_pred, [3, 3], scope='conv_loc')
+    num_cls_pred = num_anchors * num_classes
+    cls_pred = slim.conv2d(net, num_cls_pred, [3, 3], scope='conv_cls')
     return cls_pred, loc_pred
 
 
@@ -66,18 +66,18 @@ def ssd_default_boxes(feat_shape, size, ratio, dtype=np.float32):
 # =========================================================================== #
 ssd_300_features = ['block4', 'block7', 'block8', 'block9', 'block10', 'block11']
 ssd_300_features_shapes = [(38, 38), (19, 19), (10, 10), (5, 5), (3, 3), (1, 1)]
-ssd_300_sizes = [[.1], [.2, .276], [.38, .461], [.56, .644], [.74, .825], [.92, 1.01]]
+ssd_300_sizes = [[.1, 0.15], [.2, .276], [.38, .461], [.56, .644], [.74, .825], [.92, 1.01]]
 ssd_300_ratios = [[1, 2, .5],
                   [1, 2, .5, 3, 1./3],
                   [1, 2, .5, 3, 1./3],
                   [1, 2, .5, 3, 1./3],
-                  [1, 2, .5, 3, 1./3],
-                  [1, 2, .5, 3, 1./3]]
+                  [1, 2, .5],
+                  [1, 2, .5]]
 ssd_300_normalizations = [20, -1, -1, -1, -1, -1]
 
 
 def ssd_300_vgg(inputs,
-                num_classes=1000,
+                num_classes=21,
                 is_training=True,
                 dropout_keep_prob=0.5,
                 prediction_fn=slim.softmax,
@@ -166,3 +166,43 @@ def ssd_300_vgg(inputs,
 
         return predictions, localisations, end_points
 ssd_300_vgg.default_image_size = 300
+
+
+def ssd_300_vgg_arg_scope(weight_decay=0.0005):
+    """Defines the VGG arg scope.
+
+    Args:
+      weight_decay: The l2 regularization coefficient.
+
+    Returns:
+      An arg_scope.
+    """
+    with slim.arg_scope([slim.conv2d, slim.fully_connected],
+                        activation_fn=tf.nn.relu,
+                        weights_regularizer=slim.l2_regularizer(weight_decay),
+                        biases_initializer=tf.zeros_initializer):
+        with slim.arg_scope([slim.conv2d], padding='SAME') as arg_sc:
+            return arg_sc
+
+
+# =========================================================================== #
+# Caffe scope: importing weights at initialization.
+# =========================================================================== #
+def ssd_300_vgg_caffe_scope(caffe_scope):
+    """Caffe scope definition.
+
+    Args:
+      caffe_scope: Caffe scope object with loaded weights.
+
+    Returns:
+      An arg_scope.
+    """
+    # Default network arg scope.
+    with slim.arg_scope([slim.conv2d],
+                        padding='SAME',
+                        activation_fn=tf.nn.relu,
+                        weights_initializer=caffe_scope.conv_weights_init(),
+                        biases_initializer=caffe_scope.conv_biases_init()) as sc:
+        with slim.arg_scope([slim.fully_connected],
+                            activation_fn=tf.nn.relu) as sc:
+            return sc
