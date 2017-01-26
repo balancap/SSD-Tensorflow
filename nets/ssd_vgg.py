@@ -22,6 +22,84 @@ from nets import custom_layers
 slim = tf.contrib.slim
 
 
+# =========================================================================== #
+# VGG based SSD300 parameters.
+# =========================================================================== #
+ssd_300_features = ['block4', 'block7', 'block8', 'block9', 'block10', 'block11']
+ssd_300_features_shapes = [(38, 38), (19, 19), (10, 10), (5, 5), (3, 3), (1, 1)]
+# ssd_300_sizes = [[.1, 0.15], [.2, .276], [.38, .461], [.56, .644], [.74, .825], [.92, 1.01]]
+ssd_300_sizes_limits = [0.15, 0.90]
+ssd_300_ratios = [[1, 2, .5],
+                  [1, 2, .5, 3, 1./3],
+                  [1, 2, .5, 3, 1./3],
+                  [1, 2, .5, 3, 1./3],
+                  [1, 2, .5],
+                  [1, 2, .5]]
+ssd_300_normalizations = [20, -1, -1, -1, -1, -1]
+
+
+def ssd_reference_sizes():
+    """Compute the reference sizes of the anchor boxes.
+    The absolute values are measured in pixels, based on the network
+    default size (300 pixels).
+
+    This function follows the computation performed in the original
+    implementation of SSD in Caffe.
+
+    Return:
+      list of list containing the absolute sizes at each scale. For each scale,
+      the ratios only apply to the first value.
+    """
+    default_dim = ssd_300_vgg.default_image_size
+    min_ratio = ssd_300_sizes_limits[0] * 100
+    max_ratio = ssd_300_sizes_limits[1] * 100
+    step = int(math.floor((max_ratio - min_ratio) / (len(ssd_300_features)-2)))
+    # Start with the following smallest sizes.
+    sizes = [[default_dim * 0.07, default_dim * 0.15]]
+    for ratio in range(min_ratio, max_ratio + 1, step):
+        sizes.append([default_dim * ratio / 100.,
+                      default_dim * (ratio + step) / 100.])
+    return sizes
+
+
+def ssd_anchor_boxes(img_shape, feat_shape,
+                     sizes, ratios,
+                     offset=0.5, dtype=np.float32):
+    """Computer ssd default boxes.
+
+    Determine the relative position grid of the centers, and the relative
+    width and height.
+
+    Arguments:
+      img_shape: Image shape, used for computing height width relatively to the
+        former;
+      feat_shape: Feature shape, used for computing relative position grids;
+      size: Absolute reference sizes;
+      ratios: Ratios to use on these features;
+      offset: Offset.
+
+    Return:
+      y, x, h, w: Relative x and y grids, and height and width.
+    """
+    # Compute the position grid.
+    y, x = np.mgrid[0:feat_shape[0], 0:feat_shape[1]]
+    y = (y.astype(dtype) + offset) / feat_shape[0]
+    x = (x.astype(dtype) + offset) / feat_shape[1]
+
+    # Compute relative height and width.
+    # Tries to follow the original implementation of SSD for the order.
+    num_anchors = len(sizes) + len(ratios) - 1
+    h = np.zeros((num_anchors, ), dtype=dtype)
+    w = np.zeros((num_anchors, ), dtype=dtype)
+    for i, r in enumerate(ratios):
+        h[i] = sizes[0] / math.sqrt(r) / img_shape[0]
+        w[i] = sizes[0] * math.sqrt(r) / img_shape[1]
+    return y, x, h, w
+
+
+# =========================================================================== #
+# VGG based SSD300 implementation.
+# =========================================================================== #
 def ssd_multibox_layer(inputs, num_classes, size, ratio=[1],
                        normalization=-1, bn_normalization=False,
                        clip=True, interm_layer=0):
@@ -33,49 +111,19 @@ def ssd_multibox_layer(inputs, num_classes, size, ratio=[1],
     # Number of anchors.
     num_anchors = len(size) + len(ratio) - 1
 
-    # Class and location predictions.
+    # Location.
     num_loc_pred = num_anchors * 4
     loc_pred = slim.conv2d(net, num_loc_pred, [3, 3], scope='conv_loc')
+    loc_pred = tf.reshape(loc_pred, tf.concat(0, [tf.shape(loc_pred)[:-1],
+                                                  [num_anchors],
+                                                  [4]]))
+    # Class prediction.
     num_cls_pred = num_anchors * num_classes
     cls_pred = slim.conv2d(net, num_cls_pred, [3, 3], scope='conv_cls')
+    cls_pred = tf.reshape(cls_pred, tf.concat(0, [tf.shape(cls_pred)[:-1],
+                                                  [num_anchors],
+                                                  [num_classes]]))
     return cls_pred, loc_pred
-
-
-def ssd_default_boxes(feat_shape, size, ratio, dtype=np.float32):
-    """Computer ssd default boxes. Center, width and height.
-    """
-    # Similarly to SSD paper: ratio only applies to first size parameter.
-    num_anchors = len(size) + len(ratio) - 1
-    boxes = np.array((*feat_shape, num_anchors, 4))
-    # Note: aware this implementation is hideous.
-    for i in range(feat_shape[0]):
-        for j in range(feat_shape[1]):
-            for k, r in enumerate(ratio):
-                s = size[0]
-                boxes[i, j, k, :] = [(i+0.5) / feat_shape[0],
-                                     (j+0.5) / feat_shape[1],
-                                     s * math.sqrt(r),
-                                     s / math.sqrt(r)]
-            # Single box with different size.
-            s = size[1]
-            boxes[i, j, -1, :] = [(i+0.5) / feat_shape[0],
-                                  (j+0.5) / feat_shape[1],
-                                  s, s]
-    return boxes
-
-# =========================================================================== #
-# VGG based SSD300 implementation.
-# =========================================================================== #
-ssd_300_features = ['block4', 'block7', 'block8', 'block9', 'block10', 'block11']
-ssd_300_features_shapes = [(38, 38), (19, 19), (10, 10), (5, 5), (3, 3), (1, 1)]
-ssd_300_sizes = [[.1, 0.15], [.2, .276], [.38, .461], [.56, .644], [.74, .825], [.92, 1.01]]
-ssd_300_ratios = [[1, 2, .5],
-                  [1, 2, .5, 3, 1./3],
-                  [1, 2, .5, 3, 1./3],
-                  [1, 2, .5, 3, 1./3],
-                  [1, 2, .5],
-                  [1, 2, .5]]
-ssd_300_normalizations = [20, -1, -1, -1, -1, -1]
 
 
 def ssd_300_vgg(inputs,
@@ -154,6 +202,7 @@ def ssd_300_vgg(inputs,
 
         # Prediction and localisations layers.
         predictions = {}
+        logits = {}
         localisations = {}
         for i, layer in enumerate(ssd_300_features):
             with tf.variable_scope(layer + '_box'):
@@ -164,9 +213,10 @@ def ssd_300_vgg(inputs,
                                           ssd_300_normalizations[i],
                                           clip=True, interm_layer=0)
             predictions[layer] = p
+            logits[layer] = p
             localisations[layer] = l
 
-        return predictions, localisations, end_points
+        return predictions, localisations, logits, end_points
 ssd_300_vgg.default_image_size = 300
 
 
