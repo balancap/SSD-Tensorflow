@@ -24,7 +24,8 @@ from nets import inception
 # from nets import resnet_v2
 from nets import vgg
 from nets import xception
-from nets import ssd_vgg
+
+from nets import ssd_vgg_300
 
 slim = tf.contrib.slim
 
@@ -34,8 +35,8 @@ networks_map = {'vgg_a': vgg.vgg_a,
                 'inception_v3': inception.inception_v3,
                 'inception_resnet_v2': inception.inception_resnet_v2,
                 'xception': xception.xception,
-                'ssd_300_vgg': ssd_vgg.ssd_300_vgg,
-                'ssd_300_vgg_caffe': ssd_vgg.ssd_300_vgg,
+                'ssd_300_vgg': ssd_vgg_300.ssd_300_vgg,
+                'ssd_300_vgg_caffe': ssd_vgg_300.ssd_300_vgg,
                 }
 
 arg_scopes_map = {'vgg_a': vgg.vgg_arg_scope,
@@ -44,8 +45,8 @@ arg_scopes_map = {'vgg_a': vgg.vgg_arg_scope,
                   'inception_v3': inception.inception_v3_arg_scope,
                   'inception_resnet_v2': inception.inception_resnet_v2_arg_scope,
                   'xception': xception.xception_arg_scope,
-                  'ssd_300_vgg': ssd_vgg.ssd_300_vgg_arg_scope,
-                  'ssd_300_vgg_caffe': ssd_vgg.ssd_300_vgg_caffe_scope,
+                  'ssd_300_vgg': ssd_vgg_300.ssd_300_vgg_arg_scope,
+                  'ssd_300_vgg_caffe': ssd_vgg_300.ssd_300_vgg_caffe_scope,
                   }
 
 

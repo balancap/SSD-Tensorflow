@@ -29,12 +29,13 @@ ssd_300_features = ['block4', 'block7', 'block8', 'block9', 'block10', 'block11'
 ssd_300_features_shapes = [(38, 38), (19, 19), (10, 10), (5, 5), (3, 3), (1, 1)]
 # ssd_300_sizes = [[.1, 0.15], [.2, .276], [.38, .461], [.56, .644], [.74, .825], [.92, 1.01]]
 ssd_300_sizes_limits = [0.15, 0.90]
-ssd_300_ratios = [[1, 2, .5],
-                  [1, 2, .5, 3, 1./3],
-                  [1, 2, .5, 3, 1./3],
-                  [1, 2, .5, 3, 1./3],
-                  [1, 2, .5],
-                  [1, 2, .5]]
+# SSD ratios: note, we omit ratio which is always added by default.
+ssd_300_ratios = [[2, .5],
+                  [2, .5, 3, 1./3],
+                  [2, .5, 3, 1./3],
+                  [2, .5, 3, 1./3],
+                  [2, .5],
+                  [2, .5]]
 ssd_300_normalizations = [20, -1, -1, -1, -1, -1]
 
 
@@ -51,8 +52,8 @@ def ssd_reference_sizes():
       the ratios only apply to the first value.
     """
     default_dim = ssd_300_vgg.default_image_size
-    min_ratio = ssd_300_sizes_limits[0] * 100
-    max_ratio = ssd_300_sizes_limits[1] * 100
+    min_ratio = int(ssd_300_sizes_limits[0] * 100)
+    max_ratio = int(ssd_300_sizes_limits[1] * 100)
     step = int(math.floor((max_ratio - min_ratio) / (len(ssd_300_features)-2)))
     # Start with the following smallest sizes.
     sizes = [[default_dim * 0.07, default_dim * 0.15]]
@@ -88,19 +89,39 @@ def ssd_anchor_boxes(img_shape, feat_shape,
 
     # Compute relative height and width.
     # Tries to follow the original implementation of SSD for the order.
-    num_anchors = len(sizes) + len(ratios) - 1
+    num_anchors = len(sizes) + len(ratios)
     h = np.zeros((num_anchors, ), dtype=dtype)
     w = np.zeros((num_anchors, ), dtype=dtype)
+    # Add first anchor boxes with ratio=1.
+    h[0] = sizes[0] / img_shape[0]
+    w[0] = sizes[0] / img_shape[1]
+    di = 1
+    if len(sizes) > 1:
+        h[1] = math.sqrt(sizes[0] * sizes[1]) / img_shape[0]
+        w[1] = math.sqrt(sizes[0] * sizes[1]) / img_shape[1]
+        di += 1
     for i, r in enumerate(ratios):
-        h[i] = sizes[0] / math.sqrt(r) / img_shape[0]
-        w[i] = sizes[0] * math.sqrt(r) / img_shape[1]
+        h[i+di] = sizes[0] / img_shape[0] / math.sqrt(r)
+        w[i+di] = sizes[0] / img_shape[1] * math.sqrt(r)
     return y, x, h, w
+
+
+def ssd_anchors_from_layers(img_shape, layers_shape,
+                            layers_sizes, layers_ratios,
+                            offset=0.5, dtype=np.float32):
+    layers_anchors = []
+    for i, s in enumerate(layers_shape):
+        anchor_bboxes = ssd_anchor_boxes(img_shape, s,
+                                         layers_sizes[i], layers_ratios[i],
+                                         offset=offset, dtype=dtype)
+        layers_anchors.append(anchor_bboxes)
+    return layers_anchors
 
 
 # =========================================================================== #
 # VGG based SSD300 implementation.
 # =========================================================================== #
-def ssd_multibox_layer(inputs, num_classes, size, ratio=[1],
+def ssd_multibox_layer(inputs, num_classes, sizes, ratios=[1],
                        normalization=-1, bn_normalization=False,
                        clip=True, interm_layer=0):
     """Construct a multibox layer, return a class and localization predictions.
@@ -109,7 +130,7 @@ def ssd_multibox_layer(inputs, num_classes, size, ratio=[1],
     if normalization > 0:
         net = custom_layers.l2_normalization(net, scaling=True)
     # Number of anchors.
-    num_anchors = len(size) + len(ratio) - 1
+    num_anchors = len(sizes) + len(ratios)
 
     # Location.
     num_loc_pred = num_anchors * 4
@@ -201,9 +222,12 @@ def ssd_300_vgg(inputs,
         end_points[end_point] = net
 
         # Prediction and localisations layers.
-        predictions = {}
-        logits = {}
-        localisations = {}
+        ssd_300_sizes = ssd_reference_sizes()
+        print(ssd_300_sizes)
+
+        predictions = []
+        logits = []
+        localisations = []
         for i, layer in enumerate(ssd_300_features):
             with tf.variable_scope(layer + '_box'):
                 p, l = ssd_multibox_layer(end_points[layer],
@@ -212,9 +236,9 @@ def ssd_300_vgg(inputs,
                                           ssd_300_ratios[i],
                                           ssd_300_normalizations[i],
                                           clip=True, interm_layer=0)
-            predictions[layer] = p
-            logits[layer] = p
-            localisations[layer] = l
+            predictions.append(prediction_fn(p))
+            logits.append(p)
+            localisations.append(l)
 
         return predictions, localisations, logits, end_points
 ssd_300_vgg.default_image_size = 300

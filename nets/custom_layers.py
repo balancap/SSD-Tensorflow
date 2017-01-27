@@ -14,6 +14,19 @@ from tensorflow.python.ops import init_ops
 from tensorflow.python.ops import variable_scope
 
 
+def abs_smooth(x):
+    """Smooth absolute function. Useful to compute an L1 smooth error.
+
+    Define as:
+        x^2 / 2         if abs(x) < 1
+        abs(x) - 0.5    if abs(x) > 1
+    """
+    absx = tf.abs(x)
+    minx = tf.minimum(absx, 1)
+    r = 0.5 * ((absx - 1) * minx + absx)
+    return r
+
+
 @add_arg_scope
 def l2_normalization(
         inputs,
@@ -69,3 +82,5 @@ def l2_normalization(
             outputs = tf.multiply(outputs, scale)
         return utils.collect_named_outputs(outputs_collections,
                                            sc.original_name_scope, outputs)
+
+
