@@ -14,6 +14,8 @@ Usage:
 @@ssd_vgg
 """
 import math
+from collections import namedtuple
+
 import numpy as np
 import tensorflow as tf
 
@@ -23,7 +25,80 @@ slim = tf.contrib.slim
 
 
 # =========================================================================== #
-# VGG based SSD300 parameters.
+# SSD class definition.
+# =========================================================================== #
+SSDParams = namedtuple('SSDParameters', ['img_shape',
+                                         'num_classes',
+                                         'feat_layers',
+                                         'feat_shapes',
+                                         'anchor_size_bounds',
+                                         'anchor_sizes',
+                                         'anchor_ratios',
+                                         'normalizations',
+                                         'prior_scaling'
+                                         ])
+
+
+class SSDNet(object):
+    """Implementation of the SSD VGG-based 300 network.
+    """
+    default_params = SSDParams(
+        img_shape=(300, 300),
+        num_classes=21,
+        feat_layers=['block4', 'block7', 'block8', 'block9', 'block10', 'block11'],
+        feat_shapes=[(38, 38), (19, 19), (10, 10), (5, 5), (3, 3), (1, 1)],
+        anchor_size_bounds=[0.15, 0.90],
+        anchor_sizes=[(21, 45),
+                      (45, 99),
+                      (99, 153),
+                      (153, 207),
+                      (207, 261),
+                      (261, 315)],
+        anchor_ratios=[[2, .5],
+                       [2, .5, 3, 1./3],
+                       [2, .5, 3, 1./3],
+                       [2, .5, 3, 1./3],
+                       [2, .5],
+                       [2, .5]],
+        normalizations=[20, -1, -1, -1, -1, -1],
+        prior_scaling=[0.1, 0.1, 0.2, 0.2]
+        )
+
+    def __init__(self, params=None):
+        """Init the SSD net with some parameters. Use the default ones
+        if none provided.
+        """
+        if isinstance(params, SSDParams):
+            self.params = params
+        else:
+            self.params = SSDNet.default_params
+
+    # ======================================================================= #
+    def net(self, inputs,
+            is_training=True,
+            dropout_keep_prob=0.5,
+            prediction_fn=slim.softmax,
+            reuse=None,
+            scope='ssd_300_vgg'):
+        """Network definition.
+        """
+        return ssd_300_vgg(inputs,
+                           self.params.num_classes,
+                           is_training,
+                           dropout_keep_prob,
+                           prediction_fn,
+                           reuse,
+                           scope)
+
+    def scope(self, weight_decay=0.0005):
+        """Network arg_scope.
+        """
+        return ssd_300_vgg_arg_scope(weight_decay)
+
+    # ======================================================================= #
+
+# =========================================================================== #
+# Functional definition of VGG-based SSD 300.
 # =========================================================================== #
 ssd_300_features = ['block4', 'block7', 'block8', 'block9', 'block10', 'block11']
 ssd_300_features_shapes = [(38, 38), (19, 19), (10, 10), (5, 5), (3, 3), (1, 1)]
@@ -121,9 +196,12 @@ def ssd_anchors_from_layers(img_shape, layers_shape,
 # =========================================================================== #
 # VGG based SSD300 implementation.
 # =========================================================================== #
-def ssd_multibox_layer(inputs, num_classes, sizes, ratios=[1],
-                       normalization=-1, bn_normalization=False,
-                       clip=True, interm_layer=0):
+def ssd_multibox_layer(inputs,
+                       num_classes,
+                       sizes,
+                       ratios=[1],
+                       normalization=-1,
+                       bn_normalization=False):
     """Construct a multibox layer, return a class and localization predictions.
     """
     net = inputs
@@ -149,6 +227,10 @@ def ssd_multibox_layer(inputs, num_classes, sizes, ratios=[1],
 
 def ssd_300_vgg(inputs,
                 num_classes=21,
+                feat_layers=SSDNet.default_params.feat_layers,
+                anchor_sizes=SSDNet.default_params.anchor_sizes,
+                anchor_ratios=SSDNet.default_params.anchor_ratios,
+                normalizations=SSDNet.default_params.normalizations,
                 is_training=True,
                 dropout_keep_prob=0.5,
                 prediction_fn=slim.softmax,
@@ -222,19 +304,16 @@ def ssd_300_vgg(inputs,
         end_points[end_point] = net
 
         # Prediction and localisations layers.
-        ssd_300_sizes = ssd_reference_sizes()
-        print(ssd_300_sizes)
-
         predictions = []
         logits = []
         localisations = []
-        for i, layer in enumerate(ssd_300_features):
+        for i, layer in enumerate(feat_layers):
             with tf.variable_scope(layer + '_box'):
                 p, l = ssd_multibox_layer(end_points[layer],
                                           num_classes,
-                                          ssd_300_sizes[i],
-                                          ssd_300_ratios[i],
-                                          ssd_300_normalizations[i],
+                                          anchor_sizes[i],
+                                          anchor_ratios[i],
+                                          normalizations[i],
                                           clip=True, interm_layer=0)
             predictions.append(prediction_fn(p))
             logits.append(p)
