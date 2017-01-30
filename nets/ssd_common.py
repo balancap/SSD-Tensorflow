@@ -4,25 +4,162 @@ import numpy as np
 import tensorflow as tf
 
 
-def ssd_bboxes_decode(features, anchor_bboxes):
-    """Compute the bounding boxes from the layer features and reference
-    anchor bounding boxes.
+# =========================================================================== #
+# TensorFlow implementation of some bboxes methods.
+# =========================================================================== #
+def tf_ssd_bboxes_encode(labels,
+                         bboxes,
+                         anchors,
+                         matching_threshold=0.5,
+                         prior_scaling=[0.1, 0.1, 0.2, 0.2],
+                         dtype=tf.float32):
+    # Anchors coordinates and volume.
+    yref, xref, href, wref = anchors
+    ymin = yref - href / 2.
+    xmin = xref - wref / 2.
+    ymax = yref + href / 2.
+    xmax = xref + wref / 2.
+    vol_anchors = (xmax - xmin) * (ymax - ymin)
+
+    # Initialize tensors...
+    shape = (yref.shape[0], yref.shape[1], href.size)
+    feat_labels = tf.zeros(shape, dtype=tf.int64)
+    feat_scores = tf.zeros(shape, dtype=dtype)
+
+    feat_ymin = tf.zeros(shape, dtype=dtype)
+    feat_xmin = tf.zeros(shape, dtype=dtype)
+    feat_ymax = tf.zeros(shape, dtype=dtype)
+    feat_xmax = tf.zeros(shape, dtype=dtype)
+
+    def jaccard_with_anchors(bbox):
+        """Compute jaccard score a box and the anchors.
+        """
+        # Intersection bbox and volume.
+        int_ymin = tf.maximum(ymin, bbox[0])
+        int_xmin = tf.maximum(xmin, bbox[1])
+        int_ymax = tf.minimum(ymax, bbox[2])
+        int_xmax = tf.minimum(xmax, bbox[3])
+        # Volumes.
+        inter_vol = (int_xmax - int_xmin) * (int_ymax - int_ymin)
+        union_vol = vol_anchors + (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]) - inter_vol
+        jaccard = inter_vol / union_vol
+        return jaccard
+
+    def condition(i,
+                  feat_labels, feat_scores,
+                  feat_ymin, feat_xmin, feat_ymax, feat_xmax):
+        """Condition: check label index.
+        """
+        r = tf.less(i, tf.shape(labels))
+        return r[0]
+
+    def body(i,
+             feat_labels, feat_scores,
+             feat_ymin, feat_xmin, feat_ymax, feat_xmax):
+        """Body: update feature labels, scores and bboxes.
+        Follow the original SSD paper for that purpose:
+          - assign values when jaccard > 0.5;
+          - only update if beat the score of other bboxes.
+        """
+        # Jaccard score.
+        label = labels[i]
+        bbox = bboxes[i]
+        scores = jaccard_with_anchors(bbox)
+        # 'Boolean' mask.
+        mask = tf.greater(scores, matching_threshold) & \
+            tf.greater(scores, feat_scores)
+        imask = tf.cast(mask, tf.int64)
+        fmask = tf.cast(mask, dtype)
+        # Update values using mask.
+        feat_labels = imask * label + (1 - imask) * feat_labels
+        feat_scores = fmask * scores + (1 - fmask) * feat_scores
+
+        feat_ymin = fmask * bbox[0] + (1 - fmask) * feat_ymin
+        feat_xmin = fmask * bbox[1] + (1 - fmask) * feat_xmin
+        feat_ymax = fmask * bbox[2] + (1 - fmask) * feat_ymax
+        feat_xmax = fmask * bbox[3] + (1 - fmask) * feat_xmax
+        return [i+1,
+                feat_labels, feat_scores,
+                feat_ymin, feat_xmin, feat_ymax, feat_xmax]
+    # Main loop definition.
+    i = 0
+    [i,
+     feat_labels, feat_scores,
+     feat_ymin, feat_xmin,
+     feat_ymax, feat_xmax] = tf.while_loop(condition,
+                                           body,
+                                           [i, feat_labels, feat_scores,
+                                            feat_ymin, feat_xmin,
+                                            feat_ymax, feat_xmax])
+    # Transform to center / size.
+    feat_cy = (feat_ymax + feat_ymin) / 2.
+    feat_cx = (feat_xmax + feat_xmin) / 2.
+    feat_h = feat_ymax - feat_ymin
+    feat_w = feat_xmax - feat_xmin
+    # Encode features.
+    feat_cy = (feat_cy - yref) / href / prior_scaling[0]
+    feat_cx = (feat_cx - xref) / wref / prior_scaling[1]
+    feat_h = tf.log(feat_h / href) / prior_scaling[2]
+    feat_w = tf.log(feat_w / wref) / prior_scaling[3]
+    # Use SSD ordering: x / y / w / h instead of ours.
+    feat_localizations = tf.stack([feat_cx, feat_cy, feat_w, feat_h], axis=-1)
+    return feat_labels, feat_localizations, feat_scores
+
+
+def tf_ssd_bboxes_decode(feat_localizations,
+                         anchor_bboxes,
+                         prior_scaling=[0.1, 0.1, 0.2, 0.2]):
+    """Compute the relative bounding boxes from the layer features and
+    reference anchor bounding boxes.
+
+    Arguments:
+      feat_localizations: Tensor containing localization features.
+      anchor_bboxes: List of numpy array containing anchor boxes.
+
+    Return:
+      Tensor Nx4: ymin, xmin, ymax, xmax
+    """
+    yref, xref, href, wref = anchor_bboxes
+    # yref = np.expand_dims(yref, axis=-1)
+    # xref = np.expand_dims(xref, axis=-1)
+
+    # Compute center, height and width
+    cx = feat_localizations[:, :, :, :, 0] * wref * prior_scaling[0] + xref
+    cy = feat_localizations[:, :, :, :, 1] * href * prior_scaling[1] + yref
+    w = wref * tf.exp(feat_localizations[:, :, :, :, 2] * prior_scaling[2])
+    h = href * tf.exp(feat_localizations[:, :, :, :, 3] * prior_scaling[3])
+    # Boxes coordinates.
+    ymin = cy - h / 2.
+    xmin = cx - w / 2.
+    ymax = cy + h / 2.
+    xmax = cx + w / 2.
+    bboxes = tf.stack([ymin, xmin, ymax, xmax], axis=-1)
+    return bboxes
+
+
+# =========================================================================== #
+# Numpy implementations of common boxes functions.
+# =========================================================================== #
+def ssd_bboxes_decode(feat_localizations,
+                      anchor_bboxes,
+                      prior_scaling=[0.1, 0.1, 0.2, 0.2]):
+    """Compute the relative bounding boxes from the layer features and
+    reference anchor bounding boxes.
 
     Return:
       numpy array Nx4: ymin, xmin, ymax, xmax
     """
-    prior_scaling = [0.1, 0.1, 0.2, 0.2]
     yref, xref, href, wref = anchor_bboxes
     xref = np.reshape(xref, [np.prod(xref.shape), 1])
     yref = np.reshape(yref, [np.prod(yref.shape), 1])
 
     # Compute center, height and width
-    cx = features[:, :, 0] * wref * prior_scaling[0] + xref
-    cy = features[:, :, 1] * href * prior_scaling[1] + yref
-    w = wref * np.exp(features[:, :, 2] * prior_scaling[2])
-    h = href * np.exp(features[:, :, 3] * prior_scaling[3])
+    cx = feat_localizations[:, :, 0] * wref * prior_scaling[0] + xref
+    cy = feat_localizations[:, :, 1] * href * prior_scaling[1] + yref
+    w = wref * np.exp(feat_localizations[:, :, 2] * prior_scaling[2])
+    h = href * np.exp(feat_localizations[:, :, 3] * prior_scaling[3])
     # bboxes: ymin, xmin, xmax, ymax.
-    bboxes = np.zeros_like(features)
+    bboxes = np.zeros_like(feat_localizations)
     bboxes[:, :, 0] = cy - h / 2.
     bboxes[:, :, 1] = cx - w / 2.
     bboxes[:, :, 2] = cy + h / 2.
@@ -54,6 +191,7 @@ def ssd_bboxes_from_features(feat_predictions,
     scores = sub_predictions[idxes]
 
     # Decode localizations features and get bboxes.
+    bboxes = feat_localizations
     bboxes = ssd_bboxes_decode(feat_localizations, anchor_bboxes)
     bboxes = bboxes[idxes[:-1]]
 

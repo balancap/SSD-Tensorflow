@@ -194,6 +194,9 @@ def ssd_anchor_one_layer(img_shape,
     y, x = np.mgrid[0:feat_shape[0], 0:feat_shape[1]]
     y = (y.astype(dtype) + offset) * step / img_shape[0]
     x = (x.astype(dtype) + offset) * step / img_shape[1]
+    # Expand dims to support easy broadcasting.
+    y = np.expand_dims(y, axis=-1)
+    x = np.expand_dims(x, axis=-1)
 
     # Compute relative height and width.
     # Tries to follow the original implementation of SSD for the order.
@@ -254,13 +257,13 @@ def ssd_multibox_layer(inputs,
     # Location.
     num_loc_pred = num_anchors * 4
     loc_pred = slim.conv2d(net, num_loc_pred, [3, 3], scope='conv_loc')
-    loc_pred = tf.reshape(loc_pred, tf.concat(0, [tf.shape(loc_pred)[:-1],
+    loc_pred = tf.reshape(loc_pred, tf.concat(0, [loc_pred.get_shape()[:-1],
                                                   [num_anchors],
                                                   [4]]))
     # Class prediction.
     num_cls_pred = num_anchors * num_classes
     cls_pred = slim.conv2d(net, num_cls_pred, [3, 3], scope='conv_cls')
-    cls_pred = tf.reshape(cls_pred, tf.concat(0, [tf.shape(cls_pred)[:-1],
+    cls_pred = tf.reshape(cls_pred, tf.concat(0, [cls_pred.get_shape()[:-1],
                                                   [num_anchors],
                                                   [num_classes]]))
     return cls_pred, loc_pred
