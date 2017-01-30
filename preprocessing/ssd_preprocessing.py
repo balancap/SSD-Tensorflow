@@ -14,9 +14,9 @@ Resize = Enum('Resize', ('NONE',                # Nothing!
                          'PAD_AND_RESIZE'))     # Pad, and resize to output .shape
 
 # VGG mean parameters.
-_R_MEAN = 123.68
-_G_MEAN = 116.78
-_B_MEAN = 103.94
+_R_MEAN = 123.
+_G_MEAN = 117.
+_B_MEAN = 104.
 
 _RESIZE_SIDE_MIN = 256
 _RESIZE_SIDE_MAX = 512

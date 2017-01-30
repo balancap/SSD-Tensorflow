@@ -35,6 +35,7 @@ SSDParams = namedtuple('SSDParameters', ['img_shape',
                                          'anchor_size_bounds',
                                          'anchor_sizes',
                                          'anchor_ratios',
+                                         'anchor_steps',
                                          'anchor_offset',
                                          'normalizations',
                                          'prior_scaling'
@@ -71,6 +72,7 @@ class SSDNet(object):
                        [2, .5, 3, 1./3],
                        [2, .5],
                        [2, .5]],
+        anchor_steps=[8, 16, 32, 64, 100, 300],
         anchor_offset=0.5,
         normalizations=[20, -1, -1, -1, -1, -1],
         prior_scaling=[0.1, 0.1, 0.2, 0.2]
@@ -124,6 +126,7 @@ class SSDNet(object):
                                       self.params.feat_shapes,
                                       self.params.anchor_sizes,
                                       self.params.anchor_ratios,
+                                      self.params.anchor_steps,
                                       self.params.anchor_offset,
                                       dtype)
 
@@ -163,6 +166,7 @@ def ssd_anchor_one_layer(img_shape,
                          feat_shape,
                          sizes,
                          ratios,
+                         step,
                          offset=0.5,
                          dtype=np.float32):
     """Computer SSD default anchor boxes for one feature layer.
@@ -181,10 +185,15 @@ def ssd_anchor_one_layer(img_shape,
     Return:
       y, x, h, w: Relative x and y grids, and height and width.
     """
-    # Compute the position grid.
+    # Compute the position grid: simple way.
+    # y, x = np.mgrid[0:feat_shape[0], 0:feat_shape[1]]
+    # y = (y.astype(dtype) + offset) / feat_shape[0]
+    # x = (x.astype(dtype) + offset) / feat_shape[1]
+
+    # Weird SSD-Caffe computation using steps values...
     y, x = np.mgrid[0:feat_shape[0], 0:feat_shape[1]]
-    y = (y.astype(dtype) + offset) / feat_shape[0]
-    x = (x.astype(dtype) + offset) / feat_shape[1]
+    y = (y.astype(dtype) + offset) * step / img_shape[0]
+    x = (x.astype(dtype) + offset) * step / img_shape[1]
 
     # Compute relative height and width.
     # Tries to follow the original implementation of SSD for the order.
@@ -209,6 +218,7 @@ def ssd_anchors_all_layers(img_shape,
                            layers_shape,
                            anchor_sizes,
                            anchor_ratios,
+                           anchor_steps,
                            offset=0.5,
                            dtype=np.float32):
     """Compute anchor boxes for all feature layers.
@@ -218,6 +228,7 @@ def ssd_anchors_all_layers(img_shape,
         anchor_bboxes = ssd_anchor_one_layer(img_shape, s,
                                              anchor_sizes[i],
                                              anchor_ratios[i],
+                                             anchor_steps[i],
                                              offset=offset, dtype=dtype)
         layers_anchors.append(anchor_bboxes)
     return layers_anchors
