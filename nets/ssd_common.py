@@ -11,7 +11,7 @@ def ssd_bboxes_decode(features, anchor_bboxes):
     Return:
       numpy array Nx4: ymin, xmin, ymax, xmax
     """
-    prior_scaling=[0.1, 0.1, 0.2, 0.2]
+    prior_scaling = [0.1, 0.1, 0.2, 0.2]
     yref, xref, href, wref = anchor_bboxes
     xref = np.reshape(xref, [np.prod(xref.shape), 1])
     yref = np.reshape(yref, [np.prod(yref.shape), 1])
@@ -30,8 +30,12 @@ def ssd_bboxes_decode(features, anchor_bboxes):
     return bboxes
 
 
-def ssd_bboxes_from_features(feat_predictions, feat_localizations, anchor_bboxes,
-                             threshold=0.5, img_shape=(300, 300), num_classes=21):
+def ssd_bboxes_from_features(feat_predictions,
+                             feat_localizations,
+                             anchor_bboxes,
+                             threshold=0.5,
+                             img_shape=(300, 300),
+                             num_classes=21):
     """Extract classes, scores and bounding boxes from features in one layer.
 
     Return:
@@ -56,8 +60,12 @@ def ssd_bboxes_from_features(feat_predictions, feat_localizations, anchor_bboxes
     return classes, scores, bboxes
 
 
-def ssd_bboxes_from_layers(layers_predictions, layers_localizations, layers_anchors,
-                           threshold=0.5, img_shape=(300, 300), num_classes=21):
+def ssd_bboxes_from_layers(layers_predictions,
+                           layers_localizations,
+                           layers_anchors,
+                           threshold=0.5,
+                           img_shape=(300, 300),
+                           num_classes=21):
     """Extract classes, scores and bounding boxes from network output layers.
 
     Return:
@@ -71,8 +79,12 @@ def ssd_bboxes_from_layers(layers_predictions, layers_localizations, layers_anch
         feat_localizations = layers_localizations[i]
         anchor_bboxes = layers_anchors[i]
 
-        classes, scores, bboxes = ssd_bboxes_from_features(feat_predictions, feat_localizations, anchor_bboxes,
-                                                           threshold, img_shape, num_classes)
+        classes, scores, bboxes = ssd_bboxes_from_features(feat_predictions,
+                                                           feat_localizations,
+                                                           anchor_bboxes,
+                                                           threshold,
+                                                           img_shape,
+                                                           num_classes)
         l_classes.append(classes)
         l_scores.append(scores)
         l_bboxes.append(bboxes)

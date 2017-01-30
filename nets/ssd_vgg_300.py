@@ -4,6 +4,7 @@ This model was initially introduced in:
 SSD: Single Shot MultiBox Detector
 Wei Liu, Dragomir Anguelov, Dumitru Erhan, Christian Szegedy, Scott Reed,
 Cheng-Yang Fu, Alexander C. Berg
+https://arxiv.org/abs/1512.02325
 
 Two variants of the model are defined: the 300x300 and 512x512 models, the
 latter obtaining a slightly better accuracy on Pascal VOC.
@@ -34,6 +35,7 @@ SSDParams = namedtuple('SSDParameters', ['img_shape',
                                          'anchor_size_bounds',
                                          'anchor_sizes',
                                          'anchor_ratios',
+                                         'anchor_offset',
                                          'normalizations',
                                          'prior_scaling'
                                          ])
@@ -41,6 +43,15 @@ SSDParams = namedtuple('SSDParameters', ['img_shape',
 
 class SSDNet(object):
     """Implementation of the SSD VGG-based 300 network.
+
+    The default features layers with 300x300 image input are:
+      conv4 ==> 38 x 38
+      conv7 ==> 19 x 19
+      conv8 ==> 10 x 10
+      conv9 ==> 5 x 5
+      conv10 ==> 3 x 3
+      conv11 ==> 1 x 1
+    The default image size used to train this network is 300x300.
     """
     default_params = SSDParams(
         img_shape=(300, 300),
@@ -60,6 +71,7 @@ class SSDNet(object):
                        [2, .5, 3, 1./3],
                        [2, .5],
                        [2, .5]],
+        anchor_offset=0.5,
         normalizations=[20, -1, -1, -1, -1, -1],
         prior_scaling=[0.1, 0.1, 0.2, 0.2]
         )
@@ -82,40 +94,47 @@ class SSDNet(object):
             scope='ssd_300_vgg'):
         """Network definition.
         """
-        return ssd_300_vgg(inputs,
-                           self.params.num_classes,
-                           is_training,
-                           dropout_keep_prob,
-                           prediction_fn,
-                           reuse,
-                           scope)
+        return ssd_net(inputs,
+                       num_classes=self.params.num_classes,
+                       feat_layers=self.params.feat_layers,
+                       anchor_sizes=self.params.anchor_sizes,
+                       anchor_ratios=self.params.anchor_ratios,
+                       normalizations=self.params.normalizations,
+                       is_training=is_training,
+                       dropout_keep_prob=dropout_keep_prob,
+                       prediction_fn=prediction_fn,
+                       reuse=reuse,
+                       scope=scope)
 
-    def scope(self, weight_decay=0.0005):
+    def arg_scope(self, weight_decay=0.0005):
         """Network arg_scope.
         """
-        return ssd_300_vgg_arg_scope(weight_decay)
+        return ssd_arg_scope(weight_decay)
+
+    def arg_scope_caffe(self, caffe_scope):
+        """Caffe arg_scope used for weights importing.
+        """
+        return ssd_arg_scope_caffe(caffe_scope)
 
     # ======================================================================= #
+    def anchors(self, img_shape, dtype=np.float32):
+        """Compute the default anchor boxes, given an image shape.
+        """
+        return ssd_anchors_all_layers(img_shape,
+                                      self.params.feat_shapes,
+                                      self.params.anchor_sizes,
+                                      self.params.anchor_ratios,
+                                      self.params.anchor_offset,
+                                      dtype)
+
 
 # =========================================================================== #
-# Functional definition of VGG-based SSD 300.
+# SSD tools...
 # =========================================================================== #
-ssd_300_features = ['block4', 'block7', 'block8', 'block9', 'block10', 'block11']
-ssd_300_features_shapes = [(38, 38), (19, 19), (10, 10), (5, 5), (3, 3), (1, 1)]
-# ssd_300_sizes = [[.1, 0.15], [.2, .276], [.38, .461], [.56, .644], [.74, .825], [.92, 1.01]]
-ssd_300_sizes_limits = [0.15, 0.90]
-# SSD ratios: note, we omit ratio which is always added by default.
-ssd_300_ratios = [[2, .5],
-                  [2, .5, 3, 1./3],
-                  [2, .5, 3, 1./3],
-                  [2, .5, 3, 1./3],
-                  [2, .5],
-                  [2, .5]]
-ssd_300_normalizations = [20, -1, -1, -1, -1, -1]
-
-
-def ssd_reference_sizes():
-    """Compute the reference sizes of the anchor boxes.
+def ssd_size_bounds_to_values(size_bounds,
+                              n_feat_layers,
+                              img_shape=(300, 300)):
+    """Compute the reference sizes of the anchor boxes from relative bounds.
     The absolute values are measured in pixels, based on the network
     default size (300 pixels).
 
@@ -126,33 +145,38 @@ def ssd_reference_sizes():
       list of list containing the absolute sizes at each scale. For each scale,
       the ratios only apply to the first value.
     """
-    default_dim = ssd_300_vgg.default_image_size
-    min_ratio = int(ssd_300_sizes_limits[0] * 100)
-    max_ratio = int(ssd_300_sizes_limits[1] * 100)
-    step = int(math.floor((max_ratio - min_ratio) / (len(ssd_300_features)-2)))
+    assert img_shape[0] == img_shape[1]
+
+    img_size = img_shape[0]
+    min_ratio = int(size_bounds[0] * 100)
+    max_ratio = int(size_bounds[1] * 100)
+    step = int(math.floor((max_ratio - min_ratio) / (len(n_feat_layers)-2)))
     # Start with the following smallest sizes.
-    sizes = [[default_dim * 0.07, default_dim * 0.15]]
+    sizes = [[img_size * 0.07, img_size * 0.15]]
     for ratio in range(min_ratio, max_ratio + 1, step):
-        sizes.append([default_dim * ratio / 100.,
-                      default_dim * (ratio + step) / 100.])
+        sizes.append((img_size * ratio / 100.,
+                      img_size * (ratio + step) / 100.))
     return sizes
 
 
-def ssd_anchor_boxes(img_shape, feat_shape,
-                     sizes, ratios,
-                     offset=0.5, dtype=np.float32):
-    """Computer ssd default boxes.
+def ssd_anchor_one_layer(img_shape,
+                         feat_shape,
+                         sizes,
+                         ratios,
+                         offset=0.5,
+                         dtype=np.float32):
+    """Computer SSD default anchor boxes for one feature layer.
 
     Determine the relative position grid of the centers, and the relative
     width and height.
 
     Arguments:
-      img_shape: Image shape, used for computing height width relatively to the
-        former;
       feat_shape: Feature shape, used for computing relative position grids;
       size: Absolute reference sizes;
       ratios: Ratios to use on these features;
-      offset: Offset.
+      img_shape: Image shape, used for computing height, width relatively to the
+        former;
+      offset: Grid offset.
 
     Return:
       y, x, h, w: Relative x and y grids, and height and width.
@@ -181,20 +205,26 @@ def ssd_anchor_boxes(img_shape, feat_shape,
     return y, x, h, w
 
 
-def ssd_anchors_from_layers(img_shape, layers_shape,
-                            layers_sizes, layers_ratios,
-                            offset=0.5, dtype=np.float32):
+def ssd_anchors_all_layers(img_shape,
+                           layers_shape,
+                           anchor_sizes,
+                           anchor_ratios,
+                           offset=0.5,
+                           dtype=np.float32):
+    """Compute anchor boxes for all feature layers.
+    """
     layers_anchors = []
     for i, s in enumerate(layers_shape):
-        anchor_bboxes = ssd_anchor_boxes(img_shape, s,
-                                         layers_sizes[i], layers_ratios[i],
-                                         offset=offset, dtype=dtype)
+        anchor_bboxes = ssd_anchor_one_layer(img_shape, s,
+                                             anchor_sizes[i],
+                                             anchor_ratios[i],
+                                             offset=offset, dtype=dtype)
         layers_anchors.append(anchor_bboxes)
     return layers_anchors
 
 
 # =========================================================================== #
-# VGG based SSD300 implementation.
+# Functional definition of VGG-based SSD 300.
 # =========================================================================== #
 def ssd_multibox_layer(inputs,
                        num_classes,
@@ -225,30 +255,19 @@ def ssd_multibox_layer(inputs,
     return cls_pred, loc_pred
 
 
-def ssd_300_vgg(inputs,
-                num_classes=21,
-                feat_layers=SSDNet.default_params.feat_layers,
-                anchor_sizes=SSDNet.default_params.anchor_sizes,
-                anchor_ratios=SSDNet.default_params.anchor_ratios,
-                normalizations=SSDNet.default_params.normalizations,
-                is_training=True,
-                dropout_keep_prob=0.5,
-                prediction_fn=slim.softmax,
-                reuse=None,
-                scope='ssd_300_vgg'):
-    """SSD model from https://arxiv.org/abs/1512.02325
-
-    Features layers with 300x300 input:
-      conv4 ==> 38 x 38
-      conv7 ==> 19 x 19
-      conv8 ==> 10 x 10
-      conv9 ==> 5 x 5
-      conv10 ==> 3 x 3
-      conv11 ==> 1 x 1
-
-    The default image size used to train this network is 300x300.
+def ssd_net(inputs,
+            num_classes=21,
+            feat_layers=SSDNet.default_params.feat_layers,
+            anchor_sizes=SSDNet.default_params.anchor_sizes,
+            anchor_ratios=SSDNet.default_params.anchor_ratios,
+            normalizations=SSDNet.default_params.normalizations,
+            is_training=True,
+            dropout_keep_prob=0.5,
+            prediction_fn=slim.softmax,
+            reuse=None,
+            scope='ssd_300_vgg'):
+    """SSD net definition.
     """
-
     # End_points collect relevant activations for external use.
     end_points = {}
     with tf.variable_scope(scope, 'ssd_300_vgg', [inputs]):
@@ -313,17 +332,16 @@ def ssd_300_vgg(inputs,
                                           num_classes,
                                           anchor_sizes[i],
                                           anchor_ratios[i],
-                                          normalizations[i],
-                                          clip=True, interm_layer=0)
+                                          normalizations[i])
             predictions.append(prediction_fn(p))
             logits.append(p)
             localisations.append(l)
 
         return predictions, localisations, logits, end_points
-ssd_300_vgg.default_image_size = 300
+ssd_net.default_image_size = 300
 
 
-def ssd_300_vgg_arg_scope(weight_decay=0.0005):
+def ssd_arg_scope(weight_decay=0.0005):
     """Defines the VGG arg scope.
 
     Args:
@@ -345,7 +363,7 @@ def ssd_300_vgg_arg_scope(weight_decay=0.0005):
 # =========================================================================== #
 # Caffe scope: importing weights at initialization.
 # =========================================================================== #
-def ssd_300_vgg_caffe_scope(caffe_scope):
+def ssd_arg_scope_caffe(caffe_scope):
     """Caffe scope definition.
 
     Args:
