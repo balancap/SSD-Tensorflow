@@ -114,7 +114,35 @@ def _Check3DImage(image, require_static=True):
         return []
 
 
-def resize_image_with_crop_or_pad(image, target_height, target_width):
+def bboxes_crop_or_pad(bboxes,
+                       height, width,
+                       offset_y, offset_x,
+                       target_height, target_width):
+    """Adapt bounding boxes to crop or pad operations.
+    Coordinates are always supposed to be relative to the image.
+
+    Arguments:
+      bboxes: Tensor Nx4 with bboxes coordinates [y_min, x_min, y_max, x_max];
+      height, width: Original image dimension;
+      offset_y, offset_x: Offset to apply,
+        negative if cropping, positive if padding;
+      target_height, target_width: Target dimension after cropping / padding.
+    """
+    # Rescale bounding boxes in pixels.
+    scale = tf.cast(tf.stack([height, width, height, width]), bboxes.dtype)
+    bboxes = bboxes * scale
+    # Add offset.
+    offset = tf.cast(tf.stack([offset_y, offset_x, offset_y, offset_x]), bboxes.dtype)
+    bboxes = bboxes + offset
+    # Rescale to target dimension.
+    scale = tf.cast(tf.stack([target_height, target_width,
+                              target_height, target_width]), bboxes.dtype)
+    bboxes = bboxes / scale
+    return bboxes
+
+
+def resize_image_bboxes_with_crop_or_pad(image, bboxes,
+                                         target_height, target_width):
     """Crops and/or pads an image to a target width and height.
     Resizes an image to a target width and height by either centrally
     cropping the image or padding it evenly with zeros.
@@ -180,13 +208,21 @@ def resize_image_with_crop_or_pad(image, target_height, target_width):
     offset_pad_height = max_(height_diff // 2, 0)
 
     # Maybe crop if needed.
+    height_crop = min_(target_height, height)
+    width_crop = min_(target_width, width)
     cropped = tf.image.crop_to_bounding_box(image, offset_crop_height, offset_crop_width,
-                                            min_(target_height, height),
-                                            min_(target_width, width))
-
+                                            height_crop, width_crop)
+    bboxes = bboxes_crop_or_pad(bboxes,
+                                height, width,
+                                -offset_crop_height, -offset_crop_width,
+                                height_crop, width_crop)
     # Maybe pad if needed.
     resized = tf.image.pad_to_bounding_box(cropped, offset_pad_height, offset_pad_width,
                                            target_height, target_width)
+    bboxes = bboxes_crop_or_pad(bboxes,
+                                height_crop, width_crop,
+                                offset_pad_height, offset_pad_width,
+                                target_height, target_width)
 
     # In theory all the checks below are redundant.
     if resized.get_shape().ndims is None:
@@ -201,4 +237,18 @@ def resize_image_with_crop_or_pad(image, target_height, target_width):
                           'resized width is not correct.')
 
     resized = control_flow_ops.with_dependencies(assert_ops, resized)
-    return resized
+    return resized, bboxes
+
+
+def resize_image(image, size,
+                 method=tf.image.ResizeMethod.BILINEAR,
+                 align_corners=False):
+    """Resize an image and bounding boxes.
+    """
+    # Resize image.
+    height, width, channels = _ImageDimensions(image)
+    image = tf.expand_dims(image, 0)
+    image = tf.image.resize_images(image, size,
+                                   method, align_corners)
+    image = tf.reshape(image, tf.stack([size[0], size[1], channels]))
+    return image

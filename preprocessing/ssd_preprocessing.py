@@ -6,6 +6,8 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.python.ops import control_flow_ops
 
+from preprocessing import tf_image
+
 slim = tf.contrib.slim
 
 # Resizing strategies.
@@ -109,7 +111,7 @@ def preprocess_for_train(image,
     return tf_image_whitened(image, [_R_MEAN, _G_MEAN, _B_MEAN])
 
 
-def preprocess_for_eval(image, out_shape, resize):
+def preprocess_for_eval(image, bboxes, out_shape, resize):
     """Preprocess an image for evaluation.
 
     Args:
@@ -125,39 +127,44 @@ def preprocess_for_eval(image, out_shape, resize):
 
     image = tf.to_float(image)
     image = tf_image_whitened(image, [_R_MEAN, _G_MEAN, _B_MEAN])
+
+    # Add image rectangle to bboxes.
+    bbox_img = tf.constant([[0., 0., 1., 1.]])
+    if bboxes is None:
+        bboxes = bbox_img
+    else:
+        bboxes = tf.concat(0, [bbox_img, bboxes])
+
     # Resize strategy...
     if resize == Resize.NONE:
         pass
     elif resize == Resize.CENTRAL_CROP:
-        image = tf.image.resize_image_with_crop_or_pad(image,
-                                                       out_shape[0],
-                                                       out_shape[1])
+        image, bboxes = tf_image.resize_image_bboxes_with_crop_or_pad(
+            image, bboxes, out_shape[0], out_shape[1])
     elif resize == Resize.PAD_AND_RESIZE:
-        # Resizing first: find the correct factor...
+        # Resize image first: find the correct factor...
         shape = tf.shape(image)
         factor = tf.minimum(tf.to_double(1.0),
                             tf.minimum(tf.to_double(out_shape[0] / shape[0]),
                                        tf.to_double(out_shape[1] / shape[1])))
-        # Resize image.
-        resize_shape = tf.stack([factor * tf.to_double(shape[0]),
-                                 factor * tf.to_double(shape[1])])
+        resize_shape = factor * tf.to_double(shape[0:2])
         resize_shape = tf.cast(tf.floor(resize_shape), tf.int32)
-        image = tf.expand_dims(image, 0)
-        image = tf.image.resize_images(image,
-                                       resize_shape,
-                                       method=tf.image.ResizeMethod.BILINEAR,
-                                       align_corners=False)
-        image = tf.squeeze(image)
-        # image = tf.reshape(image, tf.concat(0, [resize_shape, [3]]))
+
+        image = tf_image.resize_image(image, resize_shape,
+                                      method=tf.image.ResizeMethod.BILINEAR,
+                                      align_corners=False)
         # Pad to expected size.
-        image = tf.image.resize_image_with_crop_or_pad(image,
-                                                       out_shape[0],
-                                                       out_shape[1])
-        image = tf.reshape(image, [*out_shape, 3])
-    return image
+        image, bboxes = tf_image.resize_image_bboxes_with_crop_or_pad(
+            image, bboxes, out_shape[0], out_shape[1])
+
+    # Split back bounding boxes.
+    bbox_img = bboxes[0]
+    bboxes = bboxes[1:]
+    return image, bboxes, bbox_img
 
 
 def preprocess_image(image,
+                     bboxes,
                      out_shape,
                      is_training=False,
                      resize=Resize.CENTRAL_CROP):
@@ -178,9 +185,11 @@ def preprocess_image(image,
          [resize_size_min, resize_size_max].
 
     Returns:
-        A preprocessed image.
+      A preprocessed image.
     """
     if is_training:
-        return preprocess_for_train(image, out_shape, resize)
+        return preprocess_for_train(image, bboxes, out_shape,
+                                    resize)
     else:
-        return preprocess_for_eval(image, out_shape, resize)
+        return preprocess_for_eval(image, bboxes, out_shape,
+                                   resize)
