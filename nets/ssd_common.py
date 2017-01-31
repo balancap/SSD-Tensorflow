@@ -300,10 +300,18 @@ def ssd_bboxes_select(predictions_net,
 # =========================================================================== #
 # Common functions for bboxes handling and selection.
 # =========================================================================== #
-def bboxes_sort(classes, scores, bboxes, top_k=400):
+def bboxes_sort(classes, scores, bboxes,
+                top_k=400, priority_inside=True, margin=0.05):
     """Sort bounding boxes by decreasing order and keep only the top_k
     """
-    idxes = np.argsort(-scores)
+    if priority_inside:
+        inside = (bboxes[:, 0] > margin) & (bboxes[:, 1] > margin) & \
+            (bboxes[:, 2] < 1-margin) & (bboxes[:, 3] < 1-margin)
+        idxes = np.argsort(-scores)
+        inside = inside[idxes]
+        idxes = np.concatenate([idxes[inside], idxes[~inside]])
+    else:
+        idxes = np.argsort(-scores)
     classes = classes[idxes][:top_k]
     scores = scores[idxes][:top_k]
     bboxes = bboxes[idxes][:top_k]
