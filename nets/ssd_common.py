@@ -311,6 +311,16 @@ def bboxes_sort(classes, scores, bboxes, top_k=400):
     return classes, scores, bboxes
 
 
+def bboxes_clip(bbox_ref, bboxes):
+    """Sort bounding boxes by decreasing order and keep only the top_k
+    """
+    bboxes[:, 0] = np.maximum(bboxes[:, 0], bbox_ref[0])
+    bboxes[:, 1] = np.maximum(bboxes[:, 1], bbox_ref[1])
+    bboxes[:, 2] = np.minimum(bboxes[:, 2], bbox_ref[2])
+    bboxes[:, 3] = np.minimum(bboxes[:, 3], bbox_ref[3])
+    return bboxes
+
+
 def bboxes_jaccard(bboxes1, bboxes2):
     """Computing jaccard index between bboxes1 and bboxes2.
     Note: bboxes1 can be multi-dimensional.
