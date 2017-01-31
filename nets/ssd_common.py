@@ -7,14 +7,27 @@ import tensorflow as tf
 # =========================================================================== #
 # TensorFlow implementation of some bboxes methods.
 # =========================================================================== #
-def tf_ssd_bboxes_encode(labels,
-                         bboxes,
-                         anchors,
-                         matching_threshold=0.5,
-                         prior_scaling=[0.1, 0.1, 0.2, 0.2],
-                         dtype=tf.float32):
+def tf_ssd_bboxes_encode_layer(labels,
+                               bboxes,
+                               anchors_layer,
+                               matching_threshold=0.5,
+                               prior_scaling=[0.1, 0.1, 0.2, 0.2],
+                               dtype=tf.float32):
+    """Encode groundtruth labels and bounding boxes using SSD anchors from
+    one layer.
+
+    Arguments:
+      labels: 1D Tensor(int64) containing groundtruth labels;
+      bboxes: Nx4 Tensor(float) with bboxes relative coordinates;
+      anchors_layer: Numpy array with layer anchors;
+      matching_threshold: Threshold for positive match with groundtruth bboxes;
+      prior_scaling: Scaling of encoded coordinates.
+
+    Return:
+      (target_labels, target_localizations, target_scores): Target Tensors.
+    """
     # Anchors coordinates and volume.
-    yref, xref, href, wref = anchors
+    yref, xref, href, wref = anchors_layer
     ymin = yref - href / 2.
     xmin = xref - wref / 2.
     ymax = yref + href / 2.
@@ -28,8 +41,8 @@ def tf_ssd_bboxes_encode(labels,
 
     feat_ymin = tf.zeros(shape, dtype=dtype)
     feat_xmin = tf.zeros(shape, dtype=dtype)
-    feat_ymax = tf.zeros(shape, dtype=dtype)
-    feat_xmax = tf.zeros(shape, dtype=dtype)
+    feat_ymax = tf.ones(shape, dtype=dtype)
+    feat_xmax = tf.ones(shape, dtype=dtype)
 
     def jaccard_with_anchors(bbox):
         """Compute jaccard score a box and the anchors.
@@ -45,16 +58,14 @@ def tf_ssd_bboxes_encode(labels,
         jaccard = inter_vol / union_vol
         return jaccard
 
-    def condition(i,
-                  feat_labels, feat_scores,
+    def condition(i, feat_labels, feat_scores,
                   feat_ymin, feat_xmin, feat_ymax, feat_xmax):
         """Condition: check label index.
         """
         r = tf.less(i, tf.shape(labels))
         return r[0]
 
-    def body(i,
-             feat_labels, feat_scores,
+    def body(i, feat_labels, feat_scores,
              feat_ymin, feat_xmin, feat_ymax, feat_xmax):
         """Body: update feature labels, scores and bboxes.
         Follow the original SSD paper for that purpose:
@@ -78,16 +89,13 @@ def tf_ssd_bboxes_encode(labels,
         feat_xmin = fmask * bbox[1] + (1 - fmask) * feat_xmin
         feat_ymax = fmask * bbox[2] + (1 - fmask) * feat_ymax
         feat_xmax = fmask * bbox[3] + (1 - fmask) * feat_xmax
-        return [i+1,
-                feat_labels, feat_scores,
+        return [i+1, feat_labels, feat_scores,
                 feat_ymin, feat_xmin, feat_ymax, feat_xmax]
     # Main loop definition.
     i = 0
-    [i,
-     feat_labels, feat_scores,
+    [i, feat_labels, feat_scores,
      feat_ymin, feat_xmin,
-     feat_ymax, feat_xmax] = tf.while_loop(condition,
-                                           body,
+     feat_ymax, feat_xmax] = tf.while_loop(condition, body,
                                            [i, feat_labels, feat_scores,
                                             feat_ymin, feat_xmin,
                                             feat_ymax, feat_xmax])
@@ -106,22 +114,53 @@ def tf_ssd_bboxes_encode(labels,
     return feat_labels, feat_localizations, feat_scores
 
 
-def tf_ssd_bboxes_decode(feat_localizations,
-                         anchor_bboxes,
-                         prior_scaling=[0.1, 0.1, 0.2, 0.2]):
+def tf_ssd_bboxes_encode(labels,
+                         bboxes,
+                         anchors,
+                         matching_threshold=0.5,
+                         prior_scaling=[0.1, 0.1, 0.2, 0.2],
+                         dtype=tf.float32):
+    """Encode groundtruth labels and bounding boxes using SSD net anchors.
+    Encoding boxes for all feature layers.
+
+    Arguments:
+      labels: 1D Tensor(int64) containing groundtruth labels;
+      bboxes: Nx4 Tensor(float) with bboxes relative coordinates;
+      anchors: List of Numpy array with layer anchors;
+      matching_threshold: Threshold for positive match with groundtruth bboxes;
+      prior_scaling: Scaling of encoded coordinates.
+
+    Return:
+      (target_labels, target_localizations, target_scores):
+        Each element is a list of target Tensors.
+    """
+    target_labels = []
+    target_localizations = []
+    target_scores = []
+    for anchors_layer in anchors:
+        t_labels, t_loc, t_scores = \
+            tf_ssd_bboxes_encode_layer(labels, bboxes, anchors_layer,
+                                       matching_threshold, prior_scaling, dtype)
+        target_labels.append(t_labels)
+        target_localizations.append(t_loc)
+        target_scores.append(t_scores)
+    return target_labels, target_localizations, target_scores
+
+
+def tf_ssd_bboxes_decode_layer(feat_localizations,
+                               anchors_layer,
+                               prior_scaling=[0.1, 0.1, 0.2, 0.2]):
     """Compute the relative bounding boxes from the layer features and
     reference anchor bounding boxes.
 
     Arguments:
       feat_localizations: Tensor containing localization features.
-      anchor_bboxes: List of numpy array containing anchor boxes.
+      anchors: List of numpy array containing anchor boxes.
 
     Return:
       Tensor Nx4: ymin, xmin, ymax, xmax
     """
-    yref, xref, href, wref = anchor_bboxes
-    # yref = np.expand_dims(yref, axis=-1)
-    # xref = np.expand_dims(xref, axis=-1)
+    yref, xref, href, wref = anchors_layer
 
     # Compute center, height and width
     cx = feat_localizations[:, :, :, :, 0] * wref * prior_scaling[0] + xref
@@ -137,8 +176,30 @@ def tf_ssd_bboxes_decode(feat_localizations,
     return bboxes
 
 
+def tf_ssd_bboxes_decode(feat_localizations,
+                         anchors,
+                         prior_scaling=[0.1, 0.1, 0.2, 0.2]):
+    """Compute the relative bounding boxes from the SSD net features and
+    reference anchors bounding boxes.
+
+    Arguments:
+      feat_localizations: List of Tensors containing localization features.
+      anchors: List of numpy array containing anchor boxes.
+
+    Return:
+      List of Tensors Nx4: ymin, xmin, ymax, xmax
+    """
+    bboxes = []
+    for i, anchors_layer in enumerate(anchors):
+        bboxes.append(
+            tf_ssd_bboxes_decode_layer(feat_localizations[i],
+                                       anchors_layer,
+                                       prior_scaling))
+    return bboxes
+
+
 # =========================================================================== #
-# Numpy implementations of common boxes functions.
+# Numpy implementations of SSD boxes functions.
 # =========================================================================== #
 def ssd_bboxes_decode(feat_localizations,
                       anchor_bboxes,
@@ -167,43 +228,47 @@ def ssd_bboxes_decode(feat_localizations,
     return bboxes
 
 
-def ssd_bboxes_from_features(feat_predictions,
-                             feat_localizations,
-                             anchor_bboxes,
-                             threshold=0.5,
-                             img_shape=(300, 300),
-                             num_classes=21):
+def ssd_bboxes_select_layer(predictions_layer,
+                            localizations_layer,
+                            anchors_layer,
+                            threshold=0.5,
+                            img_shape=(300, 300),
+                            num_classes=21,
+                            decode=True):
     """Extract classes, scores and bounding boxes from features in one layer.
 
     Return:
       classes, scores, bboxes: Numpy arrays...
     """
     # Reshape features: N x N_Anchors x N_labels|4
-    shape = feat_predictions.shape
-    feat_predictions = np.reshape(feat_predictions, (np.prod(shape[:-2]), shape[-2], shape[-1]))
-    shape = feat_localizations.shape
-    feat_localizations = np.reshape(feat_localizations, (np.prod(shape[:-2]), shape[-2], shape[-1]))
+    shape = predictions_layer.shape
+    predictions_layer = np.reshape(predictions_layer,
+                                   (np.prod(shape[:-2]), shape[-2], shape[-1]))
+    shape = localizations_layer.shape
+    localizations_layer = np.reshape(localizations_layer,
+                                     (np.prod(shape[:-2]), shape[-2], shape[-1]))
 
     # Predictions, removing first void class.
-    sub_predictions = feat_predictions[:, :, 1:]
+    sub_predictions = predictions_layer[:, :, 1:]
     idxes = np.where(sub_predictions > threshold)
     classes = idxes[-1]+1
     scores = sub_predictions[idxes]
-
     # Decode localizations features and get bboxes.
-    bboxes = feat_localizations
-    bboxes = ssd_bboxes_decode(feat_localizations, anchor_bboxes)
+    bboxes = localizations_layer
+    if decode:
+        bboxes = ssd_bboxes_decode(localizations_layer, anchors_layer)
     bboxes = bboxes[idxes[:-1]]
 
     return classes, scores, bboxes
 
 
-def ssd_bboxes_from_layers(layers_predictions,
-                           layers_localizations,
-                           layers_anchors,
-                           threshold=0.5,
-                           img_shape=(300, 300),
-                           num_classes=21):
+def ssd_bboxes_select(predictions_net,
+                      localizations_net,
+                      anchors_net,
+                      threshold=0.5,
+                      img_shape=(300, 300),
+                      num_classes=21,
+                      decode=True):
     """Extract classes, scores and bounding boxes from network output layers.
 
     Return:
@@ -212,33 +277,30 @@ def ssd_bboxes_from_layers(layers_predictions,
     l_classes = []
     l_scores = []
     l_bboxes = []
-    for i in range(len(layers_predictions)):
-        feat_predictions = layers_predictions[i]
-        feat_localizations = layers_localizations[i]
-        anchor_bboxes = layers_anchors[i]
-
-        classes, scores, bboxes = ssd_bboxes_from_features(feat_predictions,
-                                                           feat_localizations,
-                                                           anchor_bboxes,
-                                                           threshold,
-                                                           img_shape,
-                                                           num_classes)
+    l_layers = []
+    for i in range(len(predictions_net)):
+        classes, scores, bboxes = ssd_bboxes_select_layer(predictions_net[i],
+                                                          localizations_net[i],
+                                                          anchors_net[i],
+                                                          threshold,
+                                                          img_shape,
+                                                          num_classes,
+                                                          decode)
         l_classes.append(classes)
         l_scores.append(scores)
         l_bboxes.append(bboxes)
+        l_layers.append(np.ones(classes.shape, dtype=np.int32))
 
-        # Some debug info?
-#         print('Features', i, "shape :", feat_predictions.shape, feat_localizations.shape)
-#         print('Classes', classes)
-#         print('Scores:', scores)
-#         print('bboxes:', bboxes.shape)
-#         print('')
     classes = np.concatenate(l_classes, 0)
     scores = np.concatenate(l_scores, 0)
     bboxes = np.concatenate(l_bboxes, 0)
-    return classes, scores, bboxes
+    layers = np.concatenate(l_layers, 0)
+    return classes, scores, bboxes, layers
 
 
+# =========================================================================== #
+# Common functions for bboxes handling and selection.
+# =========================================================================== #
 def bboxes_sort(classes, scores, bboxes, top_k=400):
     """Sort bounding boxes by decreasing order and keep only the top_k
     """
