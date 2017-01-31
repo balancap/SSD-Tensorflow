@@ -259,7 +259,7 @@ def ssd_bboxes_select_layer(predictions_layer,
         bboxes = ssd_bboxes_decode(localizations_layer, anchors_layer)
     bboxes = bboxes[idxes[:-1]]
 
-    return classes, scores, bboxes
+    return classes, scores, bboxes, idxes[:-1]
 
 
 def ssd_bboxes_select(predictions_net,
@@ -278,24 +278,23 @@ def ssd_bboxes_select(predictions_net,
     l_scores = []
     l_bboxes = []
     l_layers = []
+    l_idxes = []
     for i in range(len(predictions_net)):
-        classes, scores, bboxes = ssd_bboxes_select_layer(predictions_net[i],
-                                                          localizations_net[i],
-                                                          anchors_net[i],
-                                                          threshold,
-                                                          img_shape,
-                                                          num_classes,
-                                                          decode)
+        classes, scores, bboxes, idxes = ssd_bboxes_select_layer(
+            predictions_net[i], localizations_net[i], anchors_net[i],
+            threshold, img_shape, num_classes, decode)
         l_classes.append(classes)
         l_scores.append(scores)
         l_bboxes.append(bboxes)
-        l_layers.append(np.ones(classes.shape, dtype=np.int32))
+        # Debug information.
+        l_layers.append(i)
+        l_idxes.append((i, idxes))
 
     classes = np.concatenate(l_classes, 0)
     scores = np.concatenate(l_scores, 0)
     bboxes = np.concatenate(l_bboxes, 0)
-    layers = np.concatenate(l_layers, 0)
-    return classes, scores, bboxes, layers
+    # layers = np.concatenate(l_layers, 0)
+    return classes, scores, bboxes, l_layers, l_idxes
 
 
 # =========================================================================== #

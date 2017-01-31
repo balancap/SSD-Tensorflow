@@ -212,11 +212,11 @@ def ssd_anchor_one_layer(img_shape,
     # y, x = np.mgrid[0:feat_shape[0], 0:feat_shape[1]]
     # y = (y.astype(dtype) + offset) / feat_shape[0]
     # x = (x.astype(dtype) + offset) / feat_shape[1]
-
     # Weird SSD-Caffe computation using steps values...
     y, x = np.mgrid[0:feat_shape[0], 0:feat_shape[1]]
     y = (y.astype(dtype) + offset) * step / img_shape[0]
     x = (x.astype(dtype) + offset) * step / img_shape[1]
+
     # Expand dims to support easy broadcasting.
     y = np.expand_dims(y, axis=-1)
     x = np.expand_dims(x, axis=-1)
