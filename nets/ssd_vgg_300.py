@@ -90,23 +90,29 @@ class SSDNet(object):
     # ======================================================================= #
     def net(self, inputs,
             is_training=True,
+            update_feat_shapes=True,
             dropout_keep_prob=0.5,
             prediction_fn=slim.softmax,
             reuse=None,
             scope='ssd_300_vgg'):
         """Network definition.
         """
-        return ssd_net(inputs,
-                       num_classes=self.params.num_classes,
-                       feat_layers=self.params.feat_layers,
-                       anchor_sizes=self.params.anchor_sizes,
-                       anchor_ratios=self.params.anchor_ratios,
-                       normalizations=self.params.normalizations,
-                       is_training=is_training,
-                       dropout_keep_prob=dropout_keep_prob,
-                       prediction_fn=prediction_fn,
-                       reuse=reuse,
-                       scope=scope)
+        r = ssd_net(inputs,
+                    num_classes=self.params.num_classes,
+                    feat_layers=self.params.feat_layers,
+                    anchor_sizes=self.params.anchor_sizes,
+                    anchor_ratios=self.params.anchor_ratios,
+                    normalizations=self.params.normalizations,
+                    is_training=is_training,
+                    dropout_keep_prob=dropout_keep_prob,
+                    prediction_fn=prediction_fn,
+                    reuse=reuse,
+                    scope=scope)
+        # Update feature shapes (try at least!)
+        if update_feat_shapes:
+            shapes = ssd_feat_shapes_from_net(r[0], self.params.feat_shapes)
+            self.params = self.params._replace(feat_shapes=shapes)
+        return r
 
     def arg_scope(self, weight_decay=0.0005):
         """Network arg_scope.
@@ -160,6 +166,23 @@ def ssd_size_bounds_to_values(size_bounds,
         sizes.append((img_size * ratio / 100.,
                       img_size * (ratio + step) / 100.))
     return sizes
+
+
+def ssd_feat_shapes_from_net(predictions, default_shapes=None):
+    """Try to obtain the feature shapes from the prediction layers.
+
+    Return:
+      list of feature shapes. Default values if predictions shape not fully
+      determined.
+    """
+    feat_shapes = []
+    for l in predictions:
+        shape = l.get_shape().as_list()[1:4]
+        if None in shape:
+            return default_shapes
+        else:
+            feat_shapes.append(shape)
+    return feat_shapes
 
 
 def ssd_anchor_one_layer(img_shape,
@@ -284,7 +307,7 @@ def ssd_net(inputs,
     """
     # End_points collect relevant activations for external use.
     end_points = {}
-    with tf.variable_scope(scope, 'ssd_300_vgg', [inputs]):
+    with tf.variable_scope(scope, 'ssd_300_vgg', [inputs], reuse=reuse):
         # Original VGG-16 blocks.
         net = slim.repeat(inputs, 2, slim.conv2d, 64, [3, 3], scope='conv1')
         end_points['block1'] = net

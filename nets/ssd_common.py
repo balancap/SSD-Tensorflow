@@ -321,6 +321,24 @@ def bboxes_clip(bbox_ref, bboxes):
     return bboxes
 
 
+def bboxes_resize(bbox_ref, bboxes):
+    """Resize bounding boxes based on a reference bounding box,
+    assuming that the latter is [0, 0, 1, 1] after transform.
+    """
+    # Translate.
+    bboxes[:, 0] -= bbox_ref[0]
+    bboxes[:, 1] -= bbox_ref[1]
+    bboxes[:, 2] -= bbox_ref[0]
+    bboxes[:, 3] -= bbox_ref[1]
+    # Resize.
+    resize = [bbox_ref[2] - bbox_ref[0], bbox_ref[3] - bbox_ref[1]]
+    bboxes[:, 0] *= resize[0]
+    bboxes[:, 1] *= resize[1]
+    bboxes[:, 2] *= resize[0]
+    bboxes[:, 3] *= resize[1]
+    return bboxes
+
+
 def bboxes_jaccard(bboxes1, bboxes2):
     """Computing jaccard index between bboxes1 and bboxes2.
     Note: bboxes1 can be multi-dimensional.
