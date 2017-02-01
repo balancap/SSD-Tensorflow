@@ -1,3 +1,17 @@
+# Copyright 2015 Paul Balanca. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
 """Pre-processing images for SSD-type networks.
 """
 from enum import Enum
@@ -43,10 +57,11 @@ def tf_image_whitened(image, means=[_R_MEAN, _G_MEAN, _B_MEAN]):
 
 
 def tf_image_unwhitened(image, means=[_R_MEAN, _G_MEAN, _B_MEAN], to_int=True):
-    """Subtracts the given means from each image channel.
+    """Re-convert to original image distribution, and convert to int if
+    necessary.
 
     Returns:
-        the centered image.
+      Centered image.
     """
     if image.get_shape().ndims != 3:
         raise ValueError('Input must be of size [height, width, C>0]')
@@ -64,10 +79,11 @@ def tf_image_unwhitened(image, means=[_R_MEAN, _G_MEAN, _B_MEAN], to_int=True):
 
 
 def np_image_unwhitened(image, means=[_R_MEAN, _G_MEAN, _B_MEAN], to_int=True):
-    """Subtracts the given means from each image channel.
+    """Re-convert to original image distribution, and convert to int if
+    necessary. Numpy version.
 
     Returns:
-        the centered image.
+      Centered image.
     """
     img = np.copy(image)
     img[:, :, 0] += means[0]
