@@ -128,17 +128,18 @@ def bboxes_crop_or_pad(bboxes,
         negative if cropping, positive if padding;
       target_height, target_width: Target dimension after cropping / padding.
     """
-    # Rescale bounding boxes in pixels.
-    scale = tf.cast(tf.stack([height, width, height, width]), bboxes.dtype)
-    bboxes = bboxes * scale
-    # Add offset.
-    offset = tf.cast(tf.stack([offset_y, offset_x, offset_y, offset_x]), bboxes.dtype)
-    bboxes = bboxes + offset
-    # Rescale to target dimension.
-    scale = tf.cast(tf.stack([target_height, target_width,
-                              target_height, target_width]), bboxes.dtype)
-    bboxes = bboxes / scale
-    return bboxes
+    with tf.name_scope('bboxes_crop_or_pad'):
+        # Rescale bounding boxes in pixels.
+        scale = tf.cast(tf.stack([height, width, height, width]), bboxes.dtype)
+        bboxes = bboxes * scale
+        # Add offset.
+        offset = tf.cast(tf.stack([offset_y, offset_x, offset_y, offset_x]), bboxes.dtype)
+        bboxes = bboxes + offset
+        # Rescale to target dimension.
+        scale = tf.cast(tf.stack([target_height, target_width,
+                                  target_height, target_width]), bboxes.dtype)
+        bboxes = bboxes / scale
+        return bboxes
 
 
 def resize_image_bboxes_with_crop_or_pad(image, bboxes,
@@ -162,82 +163,83 @@ def resize_image_bboxes_with_crop_or_pad(image, bboxes,
       Cropped and/or padded image of shape
         `[target_height, target_width, channels]`
     """
-    image = ops.convert_to_tensor(image, name='image')
+    with tf.name_scope('resize_with_crop_or_pad'):
+        image = ops.convert_to_tensor(image, name='image')
 
-    assert_ops = []
-    assert_ops += _Check3DImage(image, require_static=False)
-    assert_ops += _assert(target_width > 0, ValueError,
-                          'target_width must be > 0.')
-    assert_ops += _assert(target_height > 0, ValueError,
-                          'target_height must be > 0.')
+        assert_ops = []
+        assert_ops += _Check3DImage(image, require_static=False)
+        assert_ops += _assert(target_width > 0, ValueError,
+                              'target_width must be > 0.')
+        assert_ops += _assert(target_height > 0, ValueError,
+                              'target_height must be > 0.')
 
-    image = control_flow_ops.with_dependencies(assert_ops, image)
-    # `crop_to_bounding_box` and `pad_to_bounding_box` have their own checks.
-    # Make sure our checks come first, so that error messages are clearer.
-    if _is_tensor(target_height):
-        target_height = control_flow_ops.with_dependencies(
-            assert_ops, target_height)
-    if _is_tensor(target_width):
-        target_width = control_flow_ops.with_dependencies(assert_ops, target_width)
+        image = control_flow_ops.with_dependencies(assert_ops, image)
+        # `crop_to_bounding_box` and `pad_to_bounding_box` have their own checks.
+        # Make sure our checks come first, so that error messages are clearer.
+        if _is_tensor(target_height):
+            target_height = control_flow_ops.with_dependencies(
+                assert_ops, target_height)
+        if _is_tensor(target_width):
+            target_width = control_flow_ops.with_dependencies(assert_ops, target_width)
 
-    def max_(x, y):
-        if _is_tensor(x) or _is_tensor(y):
-            return math_ops.maximum(x, y)
-        else:
-            return max(x, y)
+        def max_(x, y):
+            if _is_tensor(x) or _is_tensor(y):
+                return math_ops.maximum(x, y)
+            else:
+                return max(x, y)
 
-    def min_(x, y):
-        if _is_tensor(x) or _is_tensor(y):
-            return math_ops.minimum(x, y)
-        else:
-            return min(x, y)
+        def min_(x, y):
+            if _is_tensor(x) or _is_tensor(y):
+                return math_ops.minimum(x, y)
+            else:
+                return min(x, y)
 
-    def equal_(x, y):
-        if _is_tensor(x) or _is_tensor(y):
-            return math_ops.equal(x, y)
-        else:
-            return x == y
+        def equal_(x, y):
+            if _is_tensor(x) or _is_tensor(y):
+                return math_ops.equal(x, y)
+            else:
+                return x == y
 
-    height, width, _ = _ImageDimensions(image)
-    width_diff = target_width - width
-    offset_crop_width = max_(-width_diff // 2, 0)
-    offset_pad_width = max_(width_diff // 2, 0)
+        height, width, _ = _ImageDimensions(image)
+        width_diff = target_width - width
+        offset_crop_width = max_(-width_diff // 2, 0)
+        offset_pad_width = max_(width_diff // 2, 0)
 
-    height_diff = target_height - height
-    offset_crop_height = max_(-height_diff // 2, 0)
-    offset_pad_height = max_(height_diff // 2, 0)
+        height_diff = target_height - height
+        offset_crop_height = max_(-height_diff // 2, 0)
+        offset_pad_height = max_(height_diff // 2, 0)
 
-    # Maybe crop if needed.
-    height_crop = min_(target_height, height)
-    width_crop = min_(target_width, width)
-    cropped = tf.image.crop_to_bounding_box(image, offset_crop_height, offset_crop_width,
-                                            height_crop, width_crop)
-    bboxes = bboxes_crop_or_pad(bboxes,
-                                height, width,
-                                -offset_crop_height, -offset_crop_width,
-                                height_crop, width_crop)
-    # Maybe pad if needed.
-    resized = tf.image.pad_to_bounding_box(cropped, offset_pad_height, offset_pad_width,
-                                           target_height, target_width)
-    bboxes = bboxes_crop_or_pad(bboxes,
-                                height_crop, width_crop,
-                                offset_pad_height, offset_pad_width,
-                                target_height, target_width)
+        # Maybe crop if needed.
+        height_crop = min_(target_height, height)
+        width_crop = min_(target_width, width)
+        cropped = tf.image.crop_to_bounding_box(image, offset_crop_height, offset_crop_width,
+                                                height_crop, width_crop)
+        bboxes = bboxes_crop_or_pad(bboxes,
+                                    height, width,
+                                    -offset_crop_height, -offset_crop_width,
+                                    height_crop, width_crop)
+        # Maybe pad if needed.
+        resized = tf.image.pad_to_bounding_box(cropped, offset_pad_height, offset_pad_width,
+                                               target_height, target_width)
+        bboxes = bboxes_crop_or_pad(bboxes,
+                                    height_crop, width_crop,
+                                    offset_pad_height, offset_pad_width,
+                                    target_height, target_width)
 
-    # In theory all the checks below are redundant.
-    if resized.get_shape().ndims is None:
-        raise ValueError('resized contains no shape.')
+        # In theory all the checks below are redundant.
+        if resized.get_shape().ndims is None:
+            raise ValueError('resized contains no shape.')
 
-    resized_height, resized_width, _ = _ImageDimensions(resized)
+        resized_height, resized_width, _ = _ImageDimensions(resized)
 
-    assert_ops = []
-    assert_ops += _assert(equal_(resized_height, target_height), ValueError,
-                          'resized height is not correct.')
-    assert_ops += _assert(equal_(resized_width, target_width), ValueError,
-                          'resized width is not correct.')
+        assert_ops = []
+        assert_ops += _assert(equal_(resized_height, target_height), ValueError,
+                              'resized height is not correct.')
+        assert_ops += _assert(equal_(resized_width, target_width), ValueError,
+                              'resized width is not correct.')
 
-    resized = control_flow_ops.with_dependencies(assert_ops, resized)
-    return resized, bboxes
+        resized = control_flow_ops.with_dependencies(assert_ops, resized)
+        return resized, bboxes
 
 
 def resize_image(image, size,
@@ -246,9 +248,10 @@ def resize_image(image, size,
     """Resize an image and bounding boxes.
     """
     # Resize image.
-    height, width, channels = _ImageDimensions(image)
-    image = tf.expand_dims(image, 0)
-    image = tf.image.resize_images(image, size,
-                                   method, align_corners)
-    image = tf.reshape(image, tf.stack([size[0], size[1], channels]))
-    return image
+    with tf.name_scope('resize_image'):
+        height, width, channels = _ImageDimensions(image)
+        image = tf.expand_dims(image, 0)
+        image = tf.image.resize_images(image, size,
+                                       method, align_corners)
+        image = tf.reshape(image, tf.stack([size[0], size[1], channels]))
+        return image

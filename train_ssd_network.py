@@ -13,10 +13,11 @@
 # limitations under the License.
 # ==============================================================================
 """Generic training script that trains a SSD model using a given dataset."""
+import collections
 
 import tensorflow as tf
-
 from tensorflow.python.ops import control_flow_ops
+
 from datasets import dataset_factory
 from deployment import model_deploy
 from nets import nets_factory
@@ -313,6 +314,28 @@ def _get_variables_to_train():
     return variables_to_train
 
 
+def _reshape_list(l, shape=None):
+    """Reshape list of (list): 1D to 2D and the other way.
+    """
+    r = []
+    if shape is None:
+        # Flatten everything.
+        for a in l:
+            if isinstance(a, (list, tuple)):
+                r = r + list(a)
+            else:
+                r.append(a)
+    else:
+        # Reshape to list of list.
+        i = 0
+        for s in shape:
+            if s == 1:
+                r.append(l[i])
+            else:
+                r.append(l[i:i+s])
+            i += s
+    return r
+
 # =========================================================================== #
 # Main training routine.
 # =========================================================================== #
@@ -330,8 +353,7 @@ def main(_):
             replica_id=0,
             num_replicas=1,
             num_ps_tasks=0)
-
-        # Create global_step
+        # Create global_step.
         with tf.device(deploy_config.variables_device()):
             global_step = slim.create_global_step()
 
@@ -339,57 +361,82 @@ def main(_):
         dataset = dataset_factory.get_dataset(
             FLAGS.dataset_name, FLAGS.dataset_split_name, FLAGS.dataset_dir)
 
-        # Select the network
-        network_fn = nets_factory.get_network_fn(
-            FLAGS.model_name,
-            num_classes=(dataset.num_classes),
-            weight_decay=FLAGS.weight_decay,
-            is_training=True)
+        # Get the SSD network and its anchors.
+        ssd_net = nets_factory.get_network(FLAGS.model_name)
+        ssd_shape = ssd_net.params.img_shape
+        ssd_anchors = ssd_net.anchors(ssd_shape)
 
-        # Select the preprocessing function #
+        # Select the preprocessing function.
         preprocessing_name = FLAGS.preprocessing_name or FLAGS.model_name
         image_preprocessing_fn = preprocessing_factory.get_preprocessing(
-            preprocessing_name,
-            is_training=True)
+            preprocessing_name, is_training=True)
 
-        ##############################################################
-        # Create a dataset provider that loads data from the dataset #
-        ##############################################################
+        # =================================================================== #
+        # Create a dataset provider and batches.
+        # =================================================================== #
         with tf.device(deploy_config.inputs_device()):
-            provider = slim.dataset_data_provider.DatasetDataProvider(
-                dataset,
-                num_readers=FLAGS.num_readers,
-                common_queue_capacity=20 * FLAGS.batch_size,
-                common_queue_min=10 * FLAGS.batch_size,
-                shuffle=True)
-            [image, label] = provider.get(['image', 'label'])
-            # label -= FLAGS.labels_offset
+            with tf.name_scope(FLAGS.dataset_name + '_data_provider'):
+                provider = slim.dataset_data_provider.DatasetDataProvider(
+                    dataset,
+                    num_readers=FLAGS.num_readers,
+                    common_queue_capacity=20 * FLAGS.batch_size,
+                    common_queue_min=10 * FLAGS.batch_size,
+                    shuffle=True)
+                # For SSD network: image, labels, bboxes.
+            [image, shape, glabels, gbboxes] = provider.get(['image', 'shape',
+                                                               'object/label',
+                                                               'object/bbox'])
+            # Pre-processing image, labels and bboxes.
+            image, glabels, gbboxes = \
+                image_preprocessing_fn(image, glabels, gbboxes, ssd_shape)
+            # Encode groundtruth labels and bboxes.
+            gclasses, glocalisations, gscores = \
+                ssd_net.bboxes_encode(glabels, gbboxes, ssd_anchors)
+            batch_shape = [1] + [len(ssd_anchors)] * 3
 
-            train_image_size = FLAGS.train_image_size or network_fn.default_image_size
-
-            image = image_preprocessing_fn(image, train_image_size, train_image_size)
-
-            images, labels = tf.train.batch(
-                [image, label],
+            # Training batches and queue.
+            r = tf.train.batch(
+                _reshape_list([image, gclasses, glocalisations, gscores]),
                 batch_size=FLAGS.batch_size,
                 num_threads=FLAGS.num_preprocessing_threads,
                 capacity=5 * FLAGS.batch_size)
-            labels = slim.one_hot_encoding(
-                labels, dataset.num_classes + FLAGS.labels_offset)
+            b_image, b_gclasses, b_glocalisations, b_gscores = \
+                _reshape_list(r, batch_shape)
+            # b_image = \
+            #     tf.train.batch(
+            #         [image],
+            #         batch_size=FLAGS.batch_size,
+            #         num_threads=FLAGS.num_preprocessing_threads,
+            #         capacity=5 * FLAGS.batch_size)
+
+            # labels = slim.one_hot_encoding(
+            #     labels, dataset.num_classes + FLAGS.labels_offset)
+            # Intermediate queueing: unique batch computation pipeline for all
+            # GPUs running the training.
             batch_queue = slim.prefetch_queue.prefetch_queue(
-                [images, labels], capacity=2 * deploy_config.num_clones)
+                _reshape_list([b_image, b_gclasses, b_glocalisations, b_gscores]),
+                capacity=2 * deploy_config.num_clones)
 
-        ####################
-        # Define the model #
-        ####################
+        # =================================================================== #
+        # Define the model running on every GPU.
+        # =================================================================== #
         def clone_fn(batch_queue):
-            """Allows data parallelism by creating multiple clones of network_fn."""
-            images, labels = batch_queue.dequeue()
-            logits, end_points = network_fn(images)
+            """Allows data parallelism by creating multiple
+            clones of network_fn."""
+            # Dequeue batch.
+            b_image, b_gclasses, b_glocalisations, b_gscores = \
+                _reshape_list(batch_queue.dequeue(), batch_shape)
 
-            # Specify the loss function #
-            slim.losses.softmax_cross_entropy(
-                logits, labels, label_smoothing=FLAGS.label_smoothing, weight=1.0)
+            # Construct SSD network.
+            arg_scope = ssd_net.arg_scope(weight_decay=FLAGS.weight_decay)
+            with slim.arg_scope(arg_scope):
+                predictions, localisations, logits, end_points = \
+                    ssd_net.net(b_image, is_training=True)
+
+            # Add loss functions.
+            ssd_net.losses(logits, localisations,
+                           b_gclasses, b_glocalisations, b_gscores,
+                           label_smoothing=FLAGS.label_smoothing)
             return end_points
 
         # Gather initial summaries.
@@ -408,11 +455,9 @@ def main(_):
             summaries.add(tf.histogram_summary('activations/' + end_point, x))
             summaries.add(tf.scalar_summary('sparsity/' + end_point,
                                             tf.nn.zero_fraction(x)))
-
         # Add summaries for losses.
         for loss in tf.get_collection(tf.GraphKeys.LOSSES, first_clone_scope):
             summaries.add(tf.scalar_summary('losses/%s' % loss.op.name, loss))
-
         # Add summaries for variables.
         for variable in slim.get_model_variables():
             summaries.add(tf.histogram_summary(variable.op.name, variable))

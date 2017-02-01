@@ -25,7 +25,7 @@ DATASET_DIR=/media/paul/DataExt4/PascalVOC/dataset
 TRAIN_DIR=./logs/ssd_300_vgg
 CHECKPOINT_PATH=/media/paul/DataExt4/PascalVOC/training/ckpts/SSD_300x300_ft/ssd_300_vgg.ckpt
 CHECKPOINT_PATH=./checkpoints/ssd_300_vgg.ckpt
-python train_image_classifier.py \
+python train_ssd_network.py \
     --train_dir=${TRAIN_DIR} \
     --dataset_dir=${DATASET_DIR} \
     --dataset_name=pascalvoc_2007 \
@@ -37,7 +37,7 @@ python train_image_classifier.py \
     --weight_decay=0.00001 \
     --optimizer=rmsprop \
     --learning_rate=0.0001 \
-    --batch_size=16
+    --batch_size=2
 
 
 # =========================================================================== #

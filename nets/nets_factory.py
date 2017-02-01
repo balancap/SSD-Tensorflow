@@ -49,6 +49,16 @@ arg_scopes_map = {'vgg_a': vgg.vgg_arg_scope,
                   'ssd_300_vgg_caffe': ssd_vgg_300.ssd_arg_scope_caffe,
                   }
 
+networks_obj = {'ssd_300_vgg': ssd_vgg_300.SSDNet,
+                }
+
+
+def get_network(name, params=None):
+    """Get a network object from a name.
+    """
+    params = networks_obj[name].default_params if params is None else params
+    return networks_obj[name](params)
+
 
 def get_network_fn(name, num_classes, is_training=False, **kwargs):
     """Returns a network_fn such as `logits, end_points = network_fn(images)`.

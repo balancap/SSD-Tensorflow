@@ -133,7 +133,8 @@ def tf_ssd_bboxes_encode(labels,
                          anchors,
                          matching_threshold=0.5,
                          prior_scaling=[0.1, 0.1, 0.2, 0.2],
-                         dtype=tf.float32):
+                         dtype=tf.float32,
+                         scope='ssd_bboxes_encode'):
     """Encode groundtruth labels and bounding boxes using SSD net anchors.
     Encoding boxes for all feature layers.
 
@@ -148,17 +149,19 @@ def tf_ssd_bboxes_encode(labels,
       (target_labels, target_localizations, target_scores):
         Each element is a list of target Tensors.
     """
-    target_labels = []
-    target_localizations = []
-    target_scores = []
-    for anchors_layer in anchors:
-        t_labels, t_loc, t_scores = \
-            tf_ssd_bboxes_encode_layer(labels, bboxes, anchors_layer,
-                                       matching_threshold, prior_scaling, dtype)
-        target_labels.append(t_labels)
-        target_localizations.append(t_loc)
-        target_scores.append(t_scores)
-    return target_labels, target_localizations, target_scores
+    with tf.name_scope(scope):
+        target_labels = []
+        target_localizations = []
+        target_scores = []
+        for i, anchors_layer in enumerate(anchors):
+            with tf.name_scope('bboxes_encode_block_%i' % i):
+                t_labels, t_loc, t_scores = \
+                    tf_ssd_bboxes_encode_layer(labels, bboxes, anchors_layer,
+                                               matching_threshold, prior_scaling, dtype)
+                target_labels.append(t_labels)
+                target_localizations.append(t_loc)
+                target_scores.append(t_scores)
+        return target_labels, target_localizations, target_scores
 
 
 def tf_ssd_bboxes_decode_layer(feat_localizations,
@@ -192,7 +195,8 @@ def tf_ssd_bboxes_decode_layer(feat_localizations,
 
 def tf_ssd_bboxes_decode(feat_localizations,
                          anchors,
-                         prior_scaling=[0.1, 0.1, 0.2, 0.2]):
+                         prior_scaling=[0.1, 0.1, 0.2, 0.2],
+                         scope='ssd_bboxes_decode'):
     """Compute the relative bounding boxes from the SSD net features and
     reference anchors bounding boxes.
 
@@ -203,13 +207,14 @@ def tf_ssd_bboxes_decode(feat_localizations,
     Return:
       List of Tensors Nx4: ymin, xmin, ymax, xmax
     """
-    bboxes = []
-    for i, anchors_layer in enumerate(anchors):
-        bboxes.append(
-            tf_ssd_bboxes_decode_layer(feat_localizations[i],
-                                       anchors_layer,
-                                       prior_scaling))
-    return bboxes
+    with tf.name_scope(scope):
+        bboxes = []
+        for i, anchors_layer in enumerate(anchors):
+            bboxes.append(
+                tf_ssd_bboxes_decode_layer(feat_localizations[i],
+                                           anchors_layer,
+                                           prior_scaling))
+        return bboxes
 
 
 # =========================================================================== #

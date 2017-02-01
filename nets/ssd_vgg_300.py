@@ -35,6 +35,7 @@ import numpy as np
 import tensorflow as tf
 
 from nets import custom_layers
+from nets import ssd_common
 
 slim = tf.contrib.slim
 
@@ -149,6 +150,36 @@ class SSDNet(object):
                                       self.params.anchor_steps,
                                       self.params.anchor_offset,
                                       dtype)
+
+    def bboxes_encode(self, labels, bboxes, anchors,
+                      scope='ssd_bboxes_encode'):
+        """Encode labels and bounding boxes.
+        """
+        return ssd_common.tf_ssd_bboxes_encode(
+            labels, bboxes, anchors,
+            matching_threshold=0.5,
+            prior_scaling=self.params.prior_scaling,
+            scope=scope)
+
+    def bboxes_decode(self, feat_localizations, anchors,
+                      scope='ssd_bboxes_decode'):
+        """Encode labels and bounding boxes.
+        """
+        return ssd_common.tf_ssd_bboxes_decode(
+            feat_localizations, anchors,
+            prior_scaling=self.params.prior_scaling,
+            scope=scope)
+
+    def losses(self, logits, localisations,
+               gclasses, glocalisations, gscores,
+               label_smoothing=0.,
+               scope='ssd_losses'):
+        """Define the SSD network losses.
+        """
+        ssd_losses(logits, localisations,
+                   gclasses, glocalisations, gscores,
+                   label_smoothing,
+                   scope=scope)
 
 
 # =========================================================================== #
@@ -435,3 +466,44 @@ def ssd_arg_scope_caffe(caffe_scope):
                 with slim.arg_scope([slim.conv2d, slim.max_pool2d],
                                     padding='SAME') as sc:
                     return sc
+
+
+# =========================================================================== #
+# SSD loss function.
+# =========================================================================== #
+def ssd_losses(logits, localisations,
+               gclasses, glocalisations, gscores,
+               label_smoothing=0.,
+               scope='ssd_losses'):
+    """Loss functions for training the SSD 300 VGG network.
+
+    This function defines the different loss components of the SSD, and
+    adds them to the TF loss collection.
+
+    Arguments:
+      logits: (list of) predictions logits Tensors;
+      localisations: (list of) localisations Tensors;
+      gclasses: (list of) groundtruth labels Tensors;
+      glocalisations: (list of) groundtruth localisations Tensors;
+      gscores: (list of) groundtruth score Tensors;
+    """
+    # Some debugging...
+    # for i in range(len(gclasses)):
+    #     print(localisations[i].get_shape())
+    #     print(logits[i].get_shape())
+    #     print(gclasses[i].get_shape())
+    #     print(glocalisations[i].get_shape())
+    #     print()
+    with tf.name_scope(scope):
+        # Add cross-entropy loss for every feature layer.
+        for i in range(len(logits)):
+            weights = 1.0
+            with tf.name_scope('cross_entropy_block_%i' % i):
+                loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits[i],
+                                                                      gclasses[i])
+                tf.contrib.losses.compute_weighted_loss(loss, weights)
+
+        # tf.contrib.losses.sparse_softmax_cross_entropy(labels=gclasses[i],
+        #                                                logits=logits[i],
+        #                                                weights=1.0)
+        # tf.nn.sparse_softmax_cross_entropy_with_logits(logits[i], gclasses[i])

@@ -21,8 +21,10 @@ from __future__ import print_function
 import tensorflow as tf
 
 # from preprocessing import cifarnet_preprocessing
-from preprocessing import inception_preprocessing
-from preprocessing import vgg_preprocessing
+# from preprocessing import inception_preprocessing
+# from preprocessing import vgg_preprocessing
+
+from preprocessing import ssd_preprocessing
 
 slim = tf.contrib.slim
 
@@ -43,22 +45,13 @@ def get_preprocessing(name, is_training=False):
       ValueError: If Preprocessing `name` is not recognized.
     """
     preprocessing_fn_map = {
-        'vgg': vgg_preprocessing,
-        'vgg_a': vgg_preprocessing,
-        'vgg_16': vgg_preprocessing,
-        'vgg_19': vgg_preprocessing,
-        'inception_v3': inception_preprocessing,
-        'inception_resnet_v2': inception_preprocessing,
-        'xception': inception_preprocessing,
-        'xception_keras': inception_preprocessing,
-        'dception': inception_preprocessing,
-        'ssd_300_vgg': vgg_preprocessing,
+        'ssd_300_vgg': ssd_preprocessing,
     }
 
     if name not in preprocessing_fn_map:
         raise ValueError('Preprocessing name [%s] was not recognized' % name)
 
-    def preprocessing_fn(image, output_height, output_width, **kwargs):
+    def preprocessing_fn(image, labels, bboxes, out_shape, **kwargs):
         return preprocessing_fn_map[name].preprocess_image(
-            image, output_height, output_width, is_training=is_training, **kwargs)
+            image, labels, bboxes, out_shape, is_training=is_training, **kwargs)
     return preprocessing_fn
