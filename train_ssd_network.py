@@ -13,8 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 """Generic training script that trains a SSD model using a given dataset."""
-import collections
-
 import tensorflow as tf
 from tensorflow.python.ops import control_flow_ops
 
@@ -244,8 +242,8 @@ def _configure_optimizer(learning_rate):
 def _add_variables_summaries(learning_rate):
     summaries = []
     for variable in slim.get_model_variables():
-        summaries.append(tf.histogram_summary(variable.op.name, variable))
-    summaries.append(tf.scalar_summary('training/Learning Rate', learning_rate))
+        summaries.append(tf.summary.histogram(variable.op.name, variable))
+    summaries.append(tf.summary.scalar('training/Learning Rate', learning_rate))
     return summaries
 
 
@@ -336,6 +334,7 @@ def _reshape_list(l, shape=None):
             i += s
     return r
 
+
 # =========================================================================== #
 # Main training routine.
 # =========================================================================== #
@@ -382,10 +381,10 @@ def main(_):
                     common_queue_capacity=20 * FLAGS.batch_size,
                     common_queue_min=10 * FLAGS.batch_size,
                     shuffle=True)
-                # For SSD network: image, labels, bboxes.
+            # Get for SSD network: image, labels, bboxes.
             [image, shape, glabels, gbboxes] = provider.get(['image', 'shape',
-                                                               'object/label',
-                                                               'object/bbox'])
+                                                             'object/label',
+                                                             'object/bbox'])
             # Pre-processing image, labels and bboxes.
             image, glabels, gbboxes = \
                 image_preprocessing_fn(image, glabels, gbboxes, ssd_shape)
@@ -402,15 +401,7 @@ def main(_):
                 capacity=5 * FLAGS.batch_size)
             b_image, b_gclasses, b_glocalisations, b_gscores = \
                 _reshape_list(r, batch_shape)
-            # b_image = \
-            #     tf.train.batch(
-            #         [image],
-            #         batch_size=FLAGS.batch_size,
-            #         num_threads=FLAGS.num_preprocessing_threads,
-            #         capacity=5 * FLAGS.batch_size)
 
-            # labels = slim.one_hot_encoding(
-            #     labels, dataset.num_classes + FLAGS.labels_offset)
             # Intermediate queueing: unique batch computation pipeline for all
             # GPUs running the training.
             batch_queue = slim.prefetch_queue.prefetch_queue(
@@ -442,6 +433,9 @@ def main(_):
         # Gather initial summaries.
         summaries = set(tf.get_collection(tf.GraphKeys.SUMMARIES))
 
+        # =================================================================== #
+        # Add summaries from first clone.
+        # =================================================================== #
         clones = model_deploy.create_clones(deploy_config, clone_fn, [batch_queue])
         first_clone_scope = deploy_config.clone_scope(0)
         # Gather update_ops from the first clone. These contain, for example,
@@ -452,19 +446,19 @@ def main(_):
         end_points = clones[0].outputs
         for end_point in end_points:
             x = end_points[end_point]
-            summaries.add(tf.histogram_summary('activations/' + end_point, x))
-            summaries.add(tf.scalar_summary('sparsity/' + end_point,
+            summaries.add(tf.summary.histogram('activations/' + end_point, x))
+            summaries.add(tf.summary.scalar('sparsity/' + end_point,
                                             tf.nn.zero_fraction(x)))
         # Add summaries for losses.
         for loss in tf.get_collection(tf.GraphKeys.LOSSES, first_clone_scope):
-            summaries.add(tf.scalar_summary('losses/%s' % loss.op.name, loss))
+            summaries.add(tf.summary.scalar('losses/%s' % loss.op.name, loss))
         # Add summaries for variables.
         for variable in slim.get_model_variables():
-            summaries.add(tf.histogram_summary(variable.op.name, variable))
+            summaries.add(tf.summary.histogram(variable.op.name, variable))
 
-        #################################
-        # Configure the moving averages #
-        #################################
+        # =================================================================== #
+        # Configure the moving averages.
+        # =================================================================== #
         if FLAGS.moving_average_decay:
             moving_average_variables = slim.get_model_variables()
             variable_averages = tf.train.ExponentialMovingAverage(
@@ -472,14 +466,13 @@ def main(_):
         else:
             moving_average_variables, variable_averages = None, None
 
-        #########################################
-        # Configure the optimization procedure. #
-        #########################################
+        # =================================================================== #
+        # Configure the optimization procedure.
+        # =================================================================== #
         with tf.device(deploy_config.optimizer_device()):
             learning_rate = _configure_learning_rate(dataset.num_samples, global_step)
             optimizer = _configure_optimizer(learning_rate)
-            summaries.add(tf.scalar_summary('learning_rate', learning_rate,
-                                            name='learning_rate'))
+            summaries.add(tf.summary.scalar('learning_rate', learning_rate))
 
         if FLAGS.moving_average_decay:
             # Update ops executed locally by trainer.
@@ -488,14 +481,13 @@ def main(_):
         # Variables to train.
         variables_to_train = _get_variables_to_train()
 
-        #  and returns a train_tensor and summary_op
+        # and returns a train_tensor and summary_op
         total_loss, clones_gradients = model_deploy.optimize_clones(
             clones,
             optimizer,
             var_list=variables_to_train)
         # Add total_loss to summary.
-        summaries.add(tf.scalar_summary('total_loss', total_loss,
-                                        name='total_loss'))
+        summaries.add(tf.summary.scalar('total_loss', total_loss))
 
         # Create gradient updates.
         grad_updates = optimizer.apply_gradients(clones_gradients,
@@ -506,15 +498,14 @@ def main(_):
                                                           name='train_op')
 
         # Add the summaries from the first clone. These contain the summaries
-        # created by model_fn and either optimize_clones() or _gather_clone_loss().
         summaries |= set(tf.get_collection(tf.GraphKeys.SUMMARIES,
                                            first_clone_scope))
         # Merge all summaries together.
-        summary_op = tf.merge_summary(list(summaries), name='summary_op')
+        summary_op = tf.summary.merge(list(summaries), name='summary_op')
 
-        ###########################
-        # Kicks off the training. #
-        ###########################
+        # =================================================================== #
+        # Kicks off the training.
+        # =================================================================== #
         slim.learning.train(
             train_tensor,
             logdir=FLAGS.train_dir,
