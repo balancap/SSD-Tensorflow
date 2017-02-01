@@ -30,7 +30,7 @@ from preprocessing import preprocessing_factory
 slim = tf.contrib.slim
 
 tf.app.flags.DEFINE_integer(
-    'batch_size', 32, 'The number of samples in each batch.')
+    'batch_size', 100, 'The number of samples in each batch.')
 
 tf.app.flags.DEFINE_integer(
     'max_num_batches', None,
@@ -87,22 +87,28 @@ FLAGS = tf.app.flags.FLAGS
 def main(_):
     if not FLAGS.dataset_dir:
         raise ValueError('You must supply the dataset directory with --dataset_dir')
-    print('Dataset:', FLAGS.dataset_dir)
 
     tf.logging.set_verbosity(tf.logging.INFO)
     with tf.Graph().as_default():
         tf_global_step = slim.get_or_create_global_step()
 
-        # Dataset. Note: mostly an empty object!
+        ######################
+        # Select the dataset #
+        ######################
         dataset = dataset_factory.get_dataset(
             FLAGS.dataset_name, FLAGS.dataset_split_name, FLAGS.dataset_dir)
-        # Model factory...
+
+        ####################
+        # Select the model #
+        ####################
         network_fn = nets_factory.get_network_fn(
             FLAGS.model_name,
             num_classes=(dataset.num_classes - FLAGS.labels_offset),
             is_training=False)
 
-        # Dataset provider loading data from the dataset.
+        ##############################################################
+        # Create a dataset provider that loads data from the dataset #
+        ##############################################################
         provider = slim.dataset_data_provider.DatasetDataProvider(
             dataset,
             shuffle=False,
@@ -111,19 +117,23 @@ def main(_):
         [image, label] = provider.get(['image', 'label'])
         label -= FLAGS.labels_offset
 
-        # Pre-processing of data.
-        eval_image_size = FLAGS.eval_image_size or network_fn.default_image_size
+        #####################################
+        # Select the preprocessing function #
+        #####################################
         preprocessing_name = FLAGS.preprocessing_name or FLAGS.model_name
         image_preprocessing_fn = preprocessing_factory.get_preprocessing(
-                preprocessing_name,
-                is_training=False)
+            preprocessing_name,
+            is_training=False)
+
+        eval_image_size = FLAGS.eval_image_size or network_fn.default_image_size
+
         image = image_preprocessing_fn(image, eval_image_size, eval_image_size)
 
         images, labels = tf.train.batch(
-                [image, label],
-                batch_size=FLAGS.batch_size,
-                num_threads=FLAGS.num_preprocessing_threads,
-                capacity=5 * FLAGS.batch_size)
+            [image, label],
+            batch_size=FLAGS.batch_size,
+            num_threads=FLAGS.num_preprocessing_threads,
+            capacity=5 * FLAGS.batch_size)
 
         ####################
         # Define the model #
@@ -132,9 +142,9 @@ def main(_):
 
         if FLAGS.moving_average_decay:
             variable_averages = tf.train.ExponentialMovingAverage(
-                    FLAGS.moving_average_decay, tf_global_step)
+                FLAGS.moving_average_decay, tf_global_step)
             variables_to_restore = variable_averages.variables_to_restore(
-                    slim.get_model_variables())
+                slim.get_model_variables())
             variables_to_restore[tf_global_step.op.name] = tf_global_step
         else:
             variables_to_restore = slim.get_variables_to_restore()
@@ -144,9 +154,9 @@ def main(_):
 
         # Define the metrics:
         names_to_values, names_to_updates = slim.metrics.aggregate_metric_map({
-                'Accuracy': slim.metrics.streaming_accuracy(predictions, labels),
-                'Recall@5': slim.metrics.streaming_recall_at_k(
-                        logits, labels, 5),
+            'Accuracy': slim.metrics.streaming_accuracy(predictions, labels),
+            'Recall@5': slim.metrics.streaming_recall_at_k(
+                    logits, labels, 5),
         })
 
         # Print the summaries to screen.
@@ -172,12 +182,12 @@ def main(_):
         tf.logging.info('Evaluating %s' % checkpoint_path)
 
         slim.evaluation.evaluate_once(
-                master=FLAGS.master,
-                checkpoint_path=checkpoint_path,
-                logdir=FLAGS.eval_dir,
-                num_evals=num_batches,
-                eval_op=list(names_to_updates.values()),
-                variables_to_restore=variables_to_restore)
+            master=FLAGS.master,
+            checkpoint_path=checkpoint_path,
+            logdir=FLAGS.eval_dir,
+            num_evals=num_batches,
+            eval_op=list(names_to_updates.values()),
+            variables_to_restore=variables_to_restore)
 
 
 if __name__ == '__main__':

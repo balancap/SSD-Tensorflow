@@ -258,9 +258,7 @@ def _get_init_fn():
     Returns:
       An init function run by the supervisor.
     """
-    # Assume .h5 == Keras checkpoint.
-    print(FLAGS.checkpoint_path)
-    if FLAGS.checkpoint_path is None or FLAGS.checkpoint_path[-3:] != '.h5':
+    if FLAGS.checkpoint_path is None:
         return None
 
     # Warn the user if a checkpoint exists in the train_dir. Then we'll be
@@ -324,7 +322,7 @@ def main(_):
     if not FLAGS.dataset_dir:
         raise ValueError('You must supply the dataset directory with --dataset_dir')
 
-    tf.logging.set_verbosity(tf.logging.DEBUG)
+    tf.logging.set_verbosity(tf.logging.INFO)
     with tf.Graph().as_default():
         # Config model_deploy#
         deploy_config = model_deploy.DeploymentConfig(
@@ -345,7 +343,7 @@ def main(_):
         # Select the network #
         network_fn = nets_factory.get_network_fn(
             FLAGS.model_name,
-            num_classes=(dataset.num_classes - FLAGS.labels_offset),
+            num_classes=(dataset.num_classes),
             weight_decay=FLAGS.weight_decay,
             is_training=True)
 
@@ -366,7 +364,7 @@ def main(_):
                 common_queue_min=10 * FLAGS.batch_size,
                 shuffle=True)
             [image, label] = provider.get(['image', 'label'])
-            label -= FLAGS.labels_offset
+            # label -= FLAGS.labels_offset
 
             train_image_size = FLAGS.train_image_size or network_fn.default_image_size
 
@@ -378,7 +376,7 @@ def main(_):
                 num_threads=FLAGS.num_preprocessing_threads,
                 capacity=5 * FLAGS.batch_size)
             labels = slim.one_hot_encoding(
-                labels, dataset.num_classes - FLAGS.labels_offset)
+                labels, dataset.num_classes + FLAGS.labels_offset)
             batch_queue = slim.prefetch_queue.prefetch_queue(
                 [images, labels], capacity=2 * deploy_config.num_clones)
 
@@ -438,8 +436,6 @@ def main(_):
             optimizer = _configure_optimizer(learning_rate)
             summaries.add(tf.scalar_summary('learning_rate', learning_rate,
                                             name='learning_rate'))
-            summaries.add(tf.scalar_summary('batch_size', FLAGS.batch_size,
-                                            name='batch_size'))
 
         if FLAGS.moving_average_decay:
             # Update ops executed locally by trainer.
