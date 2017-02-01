@@ -8,3 +8,4 @@ ssd-tensorflow.sublime-workspace
 ssd-tensorflow.sublime-project
 checkpoints/ssd_300_vgg.ckpt.data-00000-of-00001
 checkpoints/ssd_300_vgg.ckpt.index
+deployment/__pycache__/

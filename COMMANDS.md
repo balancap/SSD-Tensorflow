@@ -1,13 +1,8 @@
 # =========================================================================== #
 # Dataset convert...
 # =========================================================================== #
-DATASET_DIR=../traffic-signs-data/GTSRB_size32
-python tf_convert_data.py \
-    --dataset_name=gtsrb_32_transform \
-    --dataset_dir="${DATASET_DIR}"
-
 rm events* graph* model* checkpoint
-mv events* graph* model* checkpoint ./idsianet_log6
+mv events* graph* model* checkpoint ./log
 
 DATASET_DIR=/media/paul/DataExt4/VOC2012/Dataset/trainval/
 OUTPUT_DIR=/media/paul/DataExt4/VOC2012/Dataset/
@@ -17,20 +12,33 @@ python tf_convert_data.py \
     --output_name=voc_2012_train \
     --output_dir=${OUTPUT_DIR}
 
-DEF_PATH=/media/paul/DataExt4/PascalVOC/training/ckpts/SSD_300x300_ft/deploy_tf.prototxt
-CAFFE_MODEL=/media/paul/DataExt4/PascalVOC/training/ckpts/SSD_300x300_ft/VGG_VOC0712Plus_SSD_300x300_ft_iter_160000.caffemodel
-python convert.py \
-    --caffemodel=${CAFFE_MODEL} \
-    --data-output-path=./ \
-    --code-output-path=./ \
-    ${DEF_PATH}
-
-
 CAFFE_MODEL=/media/paul/DataExt4/PascalVOC/training/ckpts/SSD_300x300_ft/ssd_300_vgg.caffemodel
 python caffe_to_tensorflow.py \
     --model_name=ssd_300_vgg_caffe \
     --num_classes=21 \
     --caffemodel_path=${CAFFE_MODEL}
+
+# =========================================================================== #
+# VGG-based SSD network
+# =========================================================================== #
+DATASET_DIR=/media/paul/DataExt4/PascalVOC/dataset
+TRAIN_DIR=./logs/ssd_300_vgg
+CHECKPOINT_PATH=/media/paul/DataExt4/PascalVOC/training/ckpts/SSD_300x300_ft/ssd_300_vgg.ckpt
+CHECKPOINT_PATH=./checkpoints/ssd_300_vgg.ckpt
+python train_image_classifier.py \
+    --train_dir=${TRAIN_DIR} \
+    --dataset_dir=${DATASET_DIR} \
+    --dataset_name=pascalvoc_2007 \
+    --dataset_split_name=train \
+    --model_name=ssd_300_vgg \
+    --checkpoint_path=${CHECKPOINT_PATH} \
+    --save_summaries_secs=60 \
+    --save_interval_secs=60 \
+    --weight_decay=0.00001 \
+    --optimizer=rmsprop \
+    --learning_rate=0.0001 \
+    --batch_size=16
+
 
 # =========================================================================== #
 # Inception v3

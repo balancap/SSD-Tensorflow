@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Generic training script that trains a model using a given dataset."""
+"""Generic training script that trains a SSD model using a given dataset."""
 
 import tensorflow as tf
 
@@ -28,10 +28,8 @@ slim = tf.contrib.slim
 tf.app.flags.DEFINE_string(
     'train_dir', '/tmp/tfmodel/',
     'Directory where checkpoints and event logs are written to.')
-
 tf.app.flags.DEFINE_integer('num_clones', 1,
                             'Number of model clones to deploy.')
-
 tf.app.flags.DEFINE_boolean('clone_on_cpu', False,
                             'Use CPUs to deploy clones.')
 
@@ -114,10 +112,10 @@ tf.app.flags.DEFINE_float(
     'If left as None, then moving averages are not used.')
 
 # =========================================================================== #
-# Dataset Flags #
+# Dataset Flags
 # =========================================================================== #
 tf.app.flags.DEFINE_string(
-    'dataset_name', 'gtsrb_32', 'The name of the dataset to load.')
+    'dataset_name', 'imagenet', 'The name of the dataset to load.')
 tf.app.flags.DEFINE_string(
     'dataset_split_name', 'train', 'The name of the train/test split.')
 tf.app.flags.DEFINE_string(
@@ -322,9 +320,10 @@ def main(_):
     if not FLAGS.dataset_dir:
         raise ValueError('You must supply the dataset directory with --dataset_dir')
 
-    tf.logging.set_verbosity(tf.logging.INFO)
+    tf.logging.set_verbosity(tf.logging.DEBUG)
     with tf.Graph().as_default():
-        # Config model_deploy#
+        # Config model_deploy. Keep TF Slim Models structure.
+        # Useful if want to need multiple GPUs and/or servers in the future.
         deploy_config = model_deploy.DeploymentConfig(
             num_clones=FLAGS.num_clones,
             clone_on_cpu=FLAGS.clone_on_cpu,
@@ -336,11 +335,11 @@ def main(_):
         with tf.device(deploy_config.variables_device()):
             global_step = slim.create_global_step()
 
-        # Select the dataset #
+        # Select the dataset.
         dataset = dataset_factory.get_dataset(
             FLAGS.dataset_name, FLAGS.dataset_split_name, FLAGS.dataset_dir)
 
-        # Select the network #
+        # Select the network
         network_fn = nets_factory.get_network_fn(
             FLAGS.model_name,
             num_classes=(dataset.num_classes),
