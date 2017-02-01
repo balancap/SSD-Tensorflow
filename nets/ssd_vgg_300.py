@@ -473,6 +473,9 @@ def ssd_arg_scope_caffe(caffe_scope):
 # =========================================================================== #
 def ssd_losses(logits, localisations,
                gclasses, glocalisations, gscores,
+               match_threshold=0.5,
+               match_ratios=3.,
+               alpha=1.,
                label_smoothing=0.,
                scope='ssd_losses'):
     """Loss functions for training the SSD 300 VGG network.
@@ -495,15 +498,39 @@ def ssd_losses(logits, localisations,
     #     print(glocalisations[i].get_shape())
     #     print()
     with tf.name_scope(scope):
-        # Add cross-entropy loss for every feature layer.
+        l_cross = []
+        l_loc = []
         for i in range(len(logits)):
-            weights = 1.0
-            with tf.name_scope('cross_entropy_block_%i' % i):
-                loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits[i],
-                                                                      gclasses[i])
-                tf.contrib.losses.compute_weighted_loss(loss, weights)
+            with tf.name_scope('block_%i' % i):
+                # Determine weights Tensor.
+                pmask = tf.cast(gclasses[i] > 0, logits[i].dtype)
+                n_positives = tf.reduce_sum(pmask)
+                n_entries = np.prod(gclasses[i].get_shape().as_list())
+                # r_positive = n_positives / n_entries
+                # Select some random negative entries.
+                r_negative = 3 * n_positives / (n_entries - n_positives)
+                nmask = tf.random_uniform(gclasses[i].get_shape(),
+                                          dtype=logits[i].dtype)
+                nmask = nmask * (1. - pmask)
+                nmask = tf.cast(nmask > 1. - r_negative, logits[i].dtype)
 
-        # tf.contrib.losses.sparse_softmax_cross_entropy(labels=gclasses[i],
-        #                                                logits=logits[i],
-        #                                                weights=1.0)
-        # tf.nn.sparse_softmax_cross_entropy_with_logits(logits[i], gclasses[i])
+                # Final weights Tensor: positive mask + random negative.
+                weights = pmask + nmask
+
+                # Add cross-entropy loss.
+                with tf.name_scope('cross_entropy'):
+                    loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits[i],
+                                                                          gclasses[i])
+                    loss = tf.contrib.losses.compute_weighted_loss(loss, weights)
+                    l_cross.append(loss)
+
+                # Add localization loss: smooth L1, L2, ...
+                with tf.name_scope('localization'):
+                    loss = custom_layers.abs_smooth(localisations[i] - glocalisations[i])
+                    loss = tf.contrib.losses.compute_weighted_loss(loss, weights)
+                    l_loc.append(loss)
+
+        # Total losses in summaries...
+        with tf.name_scope('total'):
+            tf.summary.scalar('cross_entropy', tf.add_n(l_cross))
+            tf.summary.scalar('localization', tf.add_n(l_loc))

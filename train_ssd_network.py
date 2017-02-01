@@ -50,7 +50,7 @@ tf.app.flags.DEFINE_integer(
     'The frequency with which the model is saved, in seconds.')
 
 # =========================================================================== #
-# Optimization Flags #
+# Optimization Flags.
 # =========================================================================== #
 tf.app.flags.DEFINE_float(
     'weight_decay', 0.00004, 'The weight decay on the model weights.')
@@ -87,7 +87,7 @@ tf.app.flags.DEFINE_float('rmsprop_momentum', 0.9, 'Momentum.')
 tf.app.flags.DEFINE_float('rmsprop_decay', 0.9, 'Decay term for RMSProp.')
 
 # =========================================================================== #
-# Learning Rate Flags
+# Learning Rate Flags.
 # =========================================================================== #
 tf.app.flags.DEFINE_string(
     'learning_rate_decay_type',
@@ -111,7 +111,7 @@ tf.app.flags.DEFINE_float(
     'If left as None, then moving averages are not used.')
 
 # =========================================================================== #
-# Dataset Flags
+# Dataset Flags.
 # =========================================================================== #
 tf.app.flags.DEFINE_string(
     'dataset_name', 'imagenet', 'The name of the dataset to load.')
@@ -137,7 +137,7 @@ tf.app.flags.DEFINE_integer('max_number_of_steps', None,
                             'The maximum number of training steps.')
 
 # =========================================================================== #
-# Fine-Tuning Flags #
+# Fine-Tuning Flags.
 # =========================================================================== #
 tf.app.flags.DEFINE_string(
     'checkpoint_path', None,
@@ -451,7 +451,7 @@ def main(_):
                                             tf.nn.zero_fraction(x)))
         # Add summaries for losses.
         for loss in tf.get_collection(tf.GraphKeys.LOSSES, first_clone_scope):
-            summaries.add(tf.summary.scalar('losses/%s' % loss.op.name, loss))
+            summaries.add(tf.summary.scalar(loss.op.name, loss))
         # Add summaries for variables.
         for variable in slim.get_model_variables():
             summaries.add(tf.summary.histogram(variable.op.name, variable))
