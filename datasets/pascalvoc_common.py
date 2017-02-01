@@ -45,13 +45,6 @@ VOC_LABELS = {
     'tvmonitor': (20, 'Indoor'),
 }
 
-FILE_PATTERN = 'voc_2007_%s.tfrecord'
-SPLITS_TO_SIZES = {
-    'train': 5011,
-    'test': 4952,
-}
-NUM_CLASSES = 20
-
 
 def get_split(split_name, dataset_dir, file_pattern, reader,
               split_to_sizes, items_to_descriptions, num_classes):
