@@ -66,10 +66,14 @@ def tf_ssd_bboxes_encode_layer(labels,
         int_xmin = tf.maximum(xmin, bbox[1])
         int_ymax = tf.minimum(ymax, bbox[2])
         int_xmax = tf.minimum(xmax, bbox[3])
+        h = tf.maximum(int_ymax - int_ymin, 0.)
+        w = tf.maximum(int_xmax - int_xmin, 0.)
+
         # Volumes.
-        inter_vol = (int_xmax - int_xmin) * (int_ymax - int_ymin)
-        union_vol = vol_anchors + (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]) - inter_vol
-        jaccard = inter_vol / union_vol
+        inter_vol = h * w
+        union_vol = vol_anchors - inter_vol \
+            + (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+        jaccard = tf.div(inter_vol, union_vol)
         return jaccard
 
     def condition(i, feat_labels, feat_scores,
@@ -97,7 +101,12 @@ def tf_ssd_bboxes_encode_layer(labels,
         fmask = tf.cast(mask, dtype)
         # Update values using mask.
         feat_labels = imask * label + (1 - imask) * feat_labels
-        feat_scores = fmask * scores + (1 - fmask) * feat_scores
+        # feat_scores = fmask * scores + (1 - fmask) * feat_scores
+        feat_scores = tf.select(mask, scores, feat_scores)
+
+        print(mask.get_shape())
+        print(scores.get_shape())
+        print(feat_scores.get_shape())
 
         feat_ymin = fmask * bbox[0] + (1 - fmask) * feat_ymin
         feat_xmin = fmask * bbox[1] + (1 - fmask) * feat_xmin
@@ -375,12 +384,15 @@ def bboxes_jaccard(bboxes1, bboxes2):
     if bboxes2.ndim == 1:
         bboxes2 = np.expand_dims(bboxes2, 0)
     # Intersection bbox and volume.
-    int_bbox = np.vstack([np.maximum(bboxes1[:, 0], bboxes2[:, 0]),
-                          np.maximum(bboxes1[:, 1], bboxes2[:, 1]),
-                          np.minimum(bboxes1[:, 2], bboxes2[:, 2]),
-                          np.minimum(bboxes1[:, 3], bboxes2[:, 3])])
-    int_bbox = np.transpose(int_bbox)
-    int_vol = (int_bbox[:, 2] - int_bbox[:, 0]) * (int_bbox[:, 3] - int_bbox[:, 1])
+    int_ymin = tf.maximum(bboxes1[:, 0], bboxes2[:, 0])
+    int_xmin = tf.maximum(bboxes1[:, 1], bboxes2[:, 1])
+    int_ymax = tf.minimum(bboxes1[:, 2], bboxes2[:, 2])
+    int_xmax = tf.minimum(bboxes1[:, 3], bboxes2[:, 3])
+
+    int_h = np.maximum(int_ymax - int_ymin, 0.)
+    int_w = np.maximum(int_xmax - int_xmin, 0.)
+    int_vol = int_h * int_w
+    # Union volume.
     vol1 = (bboxes1[:, 2] - bboxes1[:, 0]) * (bboxes1[:, 3] - bboxes1[:, 1])
     vol2 = (bboxes2[:, 2] - bboxes2[:, 0]) * (bboxes2[:, 3] - bboxes2[:, 1])
     jaccard = int_vol / (vol1 + vol2 - int_vol)
