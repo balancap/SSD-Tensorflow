@@ -91,8 +91,8 @@ def tf_ssd_bboxes_encode_layer(labels,
         bbox = bboxes[i]
         scores = jaccard_with_anchors(bbox)
         # 'Boolean' mask.
-        mask = tf.greater(scores, matching_threshold) & \
-            tf.greater(scores, feat_scores)
+        mask = tf.logical_and(tf.greater(scores, matching_threshold),
+                              tf.greater(scores, feat_scores))
         imask = tf.cast(mask, tf.int64)
         fmask = tf.cast(mask, dtype)
         # Update values using mask.

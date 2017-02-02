@@ -474,7 +474,7 @@ def ssd_arg_scope_caffe(caffe_scope):
 def ssd_losses(logits, localisations,
                gclasses, glocalisations, gscores,
                match_threshold=0.5,
-               match_ratios=3.,
+               negative_ratio=3.,
                alpha=1.,
                label_smoothing=0.,
                scope='ssd_losses'):
@@ -508,17 +508,16 @@ def ssd_losses(logits, localisations,
                 n_entries = np.prod(gclasses[i].get_shape().as_list())
                 # r_positive = n_positives / n_entries
                 # Select some random negative entries.
-                r_negative = 3 * n_positives / (n_entries - n_positives)
+                r_negative = negative_ratio * n_positives / (n_entries - n_positives)
                 nmask = tf.random_uniform(gclasses[i].get_shape(),
                                           dtype=logits[i].dtype)
                 nmask = nmask * (1. - pmask)
                 nmask = tf.cast(nmask > 1. - r_negative, logits[i].dtype)
 
-                # Final weights Tensor: positive mask + random negative.
-                weights = pmask + nmask
-
                 # Add cross-entropy loss.
                 with tf.name_scope('cross_entropy'):
+                    # Weights Tensor: positive mask + random negative.
+                    weights = pmask + nmask
                     loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits[i],
                                                                           gclasses[i])
                     loss = tf.contrib.losses.compute_weighted_loss(loss, weights)
@@ -526,6 +525,8 @@ def ssd_losses(logits, localisations,
 
                 # Add localization loss: smooth L1, L2, ...
                 with tf.name_scope('localization'):
+                    # Weights Tensor: positive mask + random negative.
+                    weights = alpha * pmask
                     loss = custom_layers.abs_smooth(localisations[i] - glocalisations[i])
                     loss = tf.contrib.losses.compute_weighted_loss(loss, weights)
                     l_loc.append(loss)
