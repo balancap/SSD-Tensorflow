@@ -12,3 +12,4 @@ checkpoints/ssd_300_vgg.ckpt.data-00000-of-00001
 checkpoints/ssd_300_vgg.ckpt.index
 
 logs/
+.ipynb_checkpoints/
