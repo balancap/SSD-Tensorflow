@@ -261,6 +261,7 @@ def tf_bboxes_filter(labels, bboxes, margins=[0., 0., 0., 0.],
         bboxes = tf.boolean_mask(bboxes, mask)
         return labels, bboxes
 
+
 # =========================================================================== #
 # Numpy implementations of SSD boxes functions.
 # =========================================================================== #

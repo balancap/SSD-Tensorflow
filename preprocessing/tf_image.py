@@ -255,3 +255,15 @@ def resize_image(image, size,
                                        method, align_corners)
         image = tf.reshape(image, tf.stack([size[0], size[1], channels]))
         return image
+
+
+def random_flip_left_right(image, bboxes):
+    """Random flip left-right of an image and its bounding boxes.
+    """
+    # Resize image.
+    with tf.name_scope('random_flip_left_right'):
+        image = tf.image.random_flip_left_right(image)
+        offset = tf.constant([[1., 0., 1., 0.]])
+        bboxes = offset - bboxes
+        return image, bboxes
+

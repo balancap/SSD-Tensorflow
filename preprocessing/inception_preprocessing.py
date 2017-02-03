@@ -190,7 +190,7 @@ def preprocess_for_train(image, height, width, bbox,
         # Each bounding box has shape [1, num_boxes, box coords] and
         # the coordinates are ordered [ymin, xmin, ymax, xmax].
         image_with_box = tf.image.draw_bounding_boxes(tf.expand_dims(image, 0),
-                                                                                                    bbox)
+                                                      bbox)
         tf.image_summary('image_with_bounding_boxes', image_with_box)
 
         distorted_image, distorted_bbox = distorted_bounding_box_crop(image, bbox)
