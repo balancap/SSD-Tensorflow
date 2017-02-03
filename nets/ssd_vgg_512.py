@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Definition of 300 VGG-based SSD network.
+"""Definition of 512 VGG-based SSD network.
 
 This model was initially introduced in:
 SSD: Single Shot MultiBox Detector
@@ -61,35 +61,38 @@ class SSDNet(object):
     """Implementation of the SSD VGG-based 300 network.
 
     The default features layers with 300x300 image input are:
-      conv4 ==> 38 x 38
-      conv7 ==> 19 x 19
-      conv8 ==> 10 x 10
-      conv9 ==> 5 x 5
-      conv10 ==> 3 x 3
-      conv11 ==> 1 x 1
+      conv4 ==> 64 x 64
+      conv7 ==> 32 x 32
+      conv8 ==> 16 x 16
+      conv9 ==> 8 x 8
+      conv10 ==> 4 x 4
+      conv11 ==> 2 x 2
+      conv12 ==> 1 x 1
     The default image size used to train this network is 300x300.
     """
     default_params = SSDParams(
-        img_shape=(300, 300),
+        img_shape=(512, 512),
         num_classes=21,
-        feat_layers=['block4', 'block7', 'block8', 'block9', 'block10', 'block11'],
-        feat_shapes=[(38, 38), (19, 19), (10, 10), (5, 5), (3, 3), (1, 1)],
-        anchor_size_bounds=[0.15, 0.90],
-        anchor_sizes=[(21., 45.),
-                      (45., 99.),
-                      (99., 153.),
-                      (153., 207.),
-                      (207., 261.),
-                      (261., 315.)],
+        feat_layers=['block4', 'block7', 'block8', 'block9', 'block10', 'block11', 'block12'],
+        feat_shapes=[(64, 64), (32, 32), (16, 16), (8, 8), (4, 4), (2, 2), (1, 1)],
+        anchor_size_bounds=[0.10, 0.90],
+        anchor_sizes=[(20.48, 51.2),
+                      (51.2, 133.12),
+                      (133.12, 215.04),
+                      (215.04, 296.96),
+                      (296.96, 378.88),
+                      (378.88, 460.8),
+                      (460.8, 542.72)],
         anchor_ratios=[[2, .5],
+                       [2, .5, 3, 1./3],
                        [2, .5, 3, 1./3],
                        [2, .5, 3, 1./3],
                        [2, .5, 3, 1./3],
                        [2, .5],
                        [2, .5]],
-        anchor_steps=[8, 16, 32, 64, 100, 300],
+        anchor_steps=[8, 16, 32, 64, 128, 256, 512],
         anchor_offset=0.5,
-        normalizations=[20, -1, -1, -1, -1, -1],
+        normalizations=[20, -1, -1, -1, -1, -1, -1],
         prior_scaling=[0.1, 0.1, 0.2, 0.2]
         )
 
@@ -109,7 +112,7 @@ class SSDNet(object):
             dropout_keep_prob=0.5,
             prediction_fn=slim.softmax,
             reuse=None,
-            scope='ssd_300_vgg'):
+            scope='ssd_512_vgg'):
         """Network definition.
         """
         r = ssd_net(inputs,
@@ -187,10 +190,10 @@ class SSDNet(object):
 # =========================================================================== #
 def ssd_size_bounds_to_values(size_bounds,
                               n_feat_layers,
-                              img_shape=(300, 300)):
+                              img_shape=(512, 512)):
     """Compute the reference sizes of the anchor boxes from relative bounds.
     The absolute values are measured in pixels, based on the network
-    default size (300 pixels).
+    default size (512 pixels).
 
     This function follows the computation performed in the original
     implementation of SSD in Caffe.
@@ -206,7 +209,7 @@ def ssd_size_bounds_to_values(size_bounds,
     max_ratio = int(size_bounds[1] * 100)
     step = int(math.floor((max_ratio - min_ratio) / (n_feat_layers - 2)))
     # Start with the following smallest sizes.
-    sizes = [[img_size * 0.07, img_size * 0.15]]
+    sizes = [[img_size * 0.04, img_size * 0.1]]
     for ratio in range(min_ratio, max_ratio + 1, step):
         sizes.append((img_size * ratio / 100.,
                       img_size * (ratio + step) / 100.))
@@ -347,12 +350,12 @@ def ssd_net(inputs,
             dropout_keep_prob=0.5,
             prediction_fn=slim.softmax,
             reuse=None,
-            scope='ssd_300_vgg'):
+            scope='ssd_512_vgg'):
     """SSD net definition.
     """
     # End_points collect relevant activations for external use.
     end_points = {}
-    with tf.variable_scope(scope, 'ssd_300_vgg', [inputs], reuse=reuse):
+    with tf.variable_scope(scope, 'ssd_512_vgg', [inputs], reuse=reuse):
         # Original VGG-16 blocks.
         net = slim.repeat(inputs, 2, slim.conv2d, 64, [3, 3], scope='conv1')
         end_points['block1'] = net
@@ -396,12 +399,20 @@ def ssd_net(inputs,
         end_point = 'block10'
         with tf.variable_scope(end_point):
             net = slim.conv2d(net, 128, [1, 1], scope='conv1x1')
-            net = slim.conv2d(net, 256, [3, 3], scope='conv3x3', padding='VALID')
+            net = slim.conv2d(net, 256, [3, 3], stride=2, scope='conv3x3')
         end_points[end_point] = net
         end_point = 'block11'
         with tf.variable_scope(end_point):
             net = slim.conv2d(net, 128, [1, 1], scope='conv1x1')
-            net = slim.conv2d(net, 256, [3, 3], scope='conv3x3', padding='VALID')
+            net = slim.conv2d(net, 256, [3, 3], stride=2, scope='conv3x3')
+        end_points[end_point] = net
+        end_point = 'block12'
+        with tf.variable_scope(end_point):
+            net = slim.conv2d(net, 128, [1, 1], scope='conv1x1')
+            net = slim.conv2d(net, 256, [4, 4], scope='conv4x4')
+            # Fix padding to match Caffe version (pad=1).
+            net = tf.slice(net, [0, 0, 0, 0],
+                           tf.shape(net) - [0, 1, 1, 0], name='caffe_pad')
         end_points[end_point] = net
 
         # Prediction and localisations layers.
