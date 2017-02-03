@@ -14,7 +14,7 @@ slim = tf.contrib.slim
 # Main flags.
 # =========================================================================== #
 tf.app.flags.DEFINE_string(
-    'model_name', 'ssd_300_vgg_caffe', 'Name of the model to convert.')
+    'model_name', 'ssd_300_vgg', 'Name of the model to convert.')
 tf.app.flags.DEFINE_string(
     'num_classes', 21, 'Number of classes in the dataset.')
 tf.app.flags.DEFINE_string(
@@ -38,18 +38,15 @@ def main(_):
         num_classes = int(FLAGS.num_classes)
 
         # Select the network.
-        kwargs = {
-            'caffe_scope': caffemodel,
-        }
-        network_fn = nets_factory.get_network_fn(
-            FLAGS.model_name, is_training=False,
-            num_classes=num_classes, **kwargs)
+        ssd_net = nets_factory.get_network(FLAGS.model_name)
+        ssd_shape = ssd_net.params.img_shape
 
         # Image placeholder and model.
-        shape = (1, network_fn.default_image_size, network_fn.default_image_size, 3)
+        shape = (1, ssd_shape[0], ssd_shape[1], 3)
         img_input = tf.placeholder(shape=shape, dtype=tf.float32)
         # Create model.
-        network_fn(img_input)
+        with slim.arg_scope(ssd_net.arg_scope_caffe(caffemodel)):
+            ssd_net.net(img_input, is_training=False)
 
         init_op = tf.global_variables_initializer()
         with tf.Session() as session:

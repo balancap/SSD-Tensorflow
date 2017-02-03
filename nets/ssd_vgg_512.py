@@ -58,9 +58,9 @@ SSDParams = namedtuple('SSDParameters', ['img_shape',
 
 
 class SSDNet(object):
-    """Implementation of the SSD VGG-based 300 network.
+    """Implementation of the SSD VGG-based 512 network.
 
-    The default features layers with 300x300 image input are:
+    The default features layers with 512x512 image input are:
       conv4 ==> 64 x 64
       conv7 ==> 32 x 32
       conv8 ==> 16 x 16
@@ -68,7 +68,7 @@ class SSDNet(object):
       conv10 ==> 4 x 4
       conv11 ==> 2 x 2
       conv12 ==> 1 x 1
-    The default image size used to train this network is 300x300.
+    The default image size used to train this network is 512x512.
     """
     default_params = SSDParams(
         img_shape=(512, 512),
@@ -188,6 +188,23 @@ class SSDNet(object):
 # =========================================================================== #
 # SSD tools...
 # =========================================================================== #
+def layer_shape(layer):
+    """Returns the dimensions of a 4D layer tensor.
+    Args:
+      layer: A 4-D Tensor of shape `[height, width, channels]`.
+    Returns:
+      Dimensions that are statically known are python integers,
+        otherwise they are integer scalar tensors.
+    """
+    if layer.get_shape().is_fully_defined():
+        return layer.get_shape().as_list()
+    else:
+        static_shape = layer.get_shape().with_rank(4).as_list()
+        dynamic_shape = tf.unstack(tf.shape(layer), 3)
+        return [s if s is not None else d
+                for s, d in zip(static_shape, dynamic_shape)]
+
+
 def ssd_size_bounds_to_values(size_bounds,
                               n_feat_layers,
                               img_shape=(512, 512)):
@@ -309,7 +326,7 @@ def ssd_anchors_all_layers(img_shape,
 
 
 # =========================================================================== #
-# Functional definition of VGG-based SSD 300.
+# Functional definition of VGG-based SSD 512.
 # =========================================================================== #
 def ssd_multibox_layer(inputs,
                        num_classes,
@@ -411,8 +428,8 @@ def ssd_net(inputs,
             net = slim.conv2d(net, 128, [1, 1], scope='conv1x1')
             net = slim.conv2d(net, 256, [4, 4], scope='conv4x4')
             # Fix padding to match Caffe version (pad=1).
-            net = tf.slice(net, [0, 0, 0, 0],
-                           tf.shape(net) - [0, 1, 1, 0], name='caffe_pad')
+            pad_shape = [(i-j) for i, j in zip(layer_shape(net), [0, 1, 1, 0])]
+            net = tf.slice(net, [0, 0, 0, 0], pad_shape, name='caffe_pad')
         end_points[end_point] = net
 
         # Prediction and localisations layers.
@@ -431,7 +448,7 @@ def ssd_net(inputs,
             localisations.append(l)
 
         return predictions, localisations, logits, end_points
-ssd_net.default_image_size = 300
+ssd_net.default_image_size = 512
 
 
 def ssd_arg_scope(weight_decay=0.0005):
@@ -489,7 +506,7 @@ def ssd_losses(logits, localisations,
                alpha=1.,
                label_smoothing=0.,
                scope='ssd_losses'):
-    """Loss functions for training the SSD 300 VGG network.
+    """Loss functions for training the SSD 512 VGG network.
 
     This function defines the different loss components of the SSD, and
     adds them to the TF loss collection.

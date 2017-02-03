@@ -12,9 +12,9 @@ python tf_convert_data.py \
     --output_name=voc_2007_test \
     --output_dir=${OUTPUT_DIR}
 
-CAFFE_MODEL=/media/paul/DataExt4/PascalVOC/training/ckpts/SSD_300x300_ft/ssd_300_vgg.caffemodel
+CAFFE_MODEL=/media/paul/DataExt4/PascalVOC/training/ckpts/SSD_512x512_ft/ssd_512_vgg.caffemodel
 python caffe_to_tensorflow.py \
-    --model_name=ssd_300_vgg_caffe \
+    --model_name=ssd_512_vgg \
     --num_classes=21 \
     --caffemodel_path=${CAFFE_MODEL}
 

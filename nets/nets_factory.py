@@ -26,6 +26,7 @@ from nets import vgg
 from nets import xception
 
 from nets import ssd_vgg_300
+from nets import ssd_vgg_512
 
 slim = tf.contrib.slim
 
@@ -50,6 +51,7 @@ arg_scopes_map = {'vgg_a': vgg.vgg_arg_scope,
                   }
 
 networks_obj = {'ssd_300_vgg': ssd_vgg_300.SSDNet,
+                'ssd_512_vgg': ssd_vgg_512.SSDNet,
                 }
 
 
