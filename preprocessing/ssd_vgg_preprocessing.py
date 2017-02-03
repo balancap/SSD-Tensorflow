@@ -50,10 +50,9 @@ def tf_image_whitened(image, means=[_R_MEAN, _G_MEAN, _B_MEAN]):
     if len(means) != num_channels:
         raise ValueError('len(means) must match the number of channels')
 
-    channels = tf.split(2, num_channels, image)
-    for i in range(num_channels):
-        channels[i] -= means[i]
-    return tf.concat(2, channels)
+    mean = tf.constant(means, dtype=image.dtype)
+    image = image - mean
+    return image
 
 
 def tf_image_unwhitened(image, means=[_R_MEAN, _G_MEAN, _B_MEAN], to_int=True):
@@ -63,16 +62,8 @@ def tf_image_unwhitened(image, means=[_R_MEAN, _G_MEAN, _B_MEAN], to_int=True):
     Returns:
       Centered image.
     """
-    if image.get_shape().ndims != 3:
-        raise ValueError('Input must be of size [height, width, C>0]')
-    num_channels = image.get_shape().as_list()[-1]
-    if len(means) != num_channels:
-        raise ValueError('len(means) must match the number of channels')
-
-    channels = tf.split(2, num_channels, image)
-    for i in range(num_channels):
-        channels[i] += means[i]
-    image = tf.concat(2, channels)
+    mean = tf.constant(means, dtype=image.dtype)
+    image = image + mean
     if to_int:
         image = tf.cast(image, tf.int32)
     return image
@@ -86,9 +77,7 @@ def np_image_unwhitened(image, means=[_R_MEAN, _G_MEAN, _B_MEAN], to_int=True):
       Centered image.
     """
     img = np.copy(image)
-    img[:, :, 0] += means[0]
-    img[:, :, 1] += means[1]
-    img[:, :, 2] += means[2]
+    img += np.array(means, dtype=img.dtype)
     if to_int:
         img = img.astype(np.uint8)
     return img
