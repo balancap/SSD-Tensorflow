@@ -221,6 +221,23 @@ def tf_ssd_bboxes_decode(feat_localizations,
         return bboxes
 
 
+def tf_bboxes_resize(bbox_ref, bboxes):
+    """Resize bounding boxes based on a reference bounding box,
+    assuming that the latter is [0, 0, 1, 1] after transform.
+    """
+    bboxes = np.copy(bboxes)
+    # Translate.
+    v = tf.stack([bbox_ref[0], bbox_ref[1], bbox_ref[0], bbox_ref[1]])
+    bboxes = bboxes - v
+    # Resize.
+    s = tf.stack([bbox_ref[2] - bbox_ref[0],
+                  bbox_ref[3] - bbox_ref[1],
+                  bbox_ref[2] - bbox_ref[0],
+                  bbox_ref[3] - bbox_ref[1]])
+    bboxes = bboxes / s
+    return bboxes
+
+
 # =========================================================================== #
 # Numpy implementations of SSD boxes functions.
 # =========================================================================== #
