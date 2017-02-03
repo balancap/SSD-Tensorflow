@@ -221,22 +221,45 @@ def tf_ssd_bboxes_decode(feat_localizations,
         return bboxes
 
 
-def tf_bboxes_resize(bbox_ref, bboxes):
+def tf_bboxes_resize(bbox_ref, bboxes,
+                     scope='bboxes_resize'):
     """Resize bounding boxes based on a reference bounding box,
     assuming that the latter is [0, 0, 1, 1] after transform.
     """
-    bboxes = np.copy(bboxes)
-    # Translate.
-    v = tf.stack([bbox_ref[0], bbox_ref[1], bbox_ref[0], bbox_ref[1]])
-    bboxes = bboxes - v
-    # Resize.
-    s = tf.stack([bbox_ref[2] - bbox_ref[0],
-                  bbox_ref[3] - bbox_ref[1],
-                  bbox_ref[2] - bbox_ref[0],
-                  bbox_ref[3] - bbox_ref[1]])
-    bboxes = bboxes / s
-    return bboxes
+    with tf.name_scope(scope):
+        bboxes = np.copy(bboxes)
+        # Translate.
+        v = tf.stack([bbox_ref[0], bbox_ref[1], bbox_ref[0], bbox_ref[1]])
+        bboxes = bboxes - v
+        # Resize.
+        s = tf.stack([bbox_ref[2] - bbox_ref[0],
+                      bbox_ref[3] - bbox_ref[1],
+                      bbox_ref[2] - bbox_ref[0],
+                      bbox_ref[3] - bbox_ref[1]])
+        bboxes = bboxes / s
+        return bboxes
 
+
+def tf_bboxes_filter(labels, bboxes, margins=[0., 0., 0., 0.],
+                     scope='bboxes_filter'):
+    """Filter out bounding boxes whose center are not in
+    the rectangle [0, 0, 1, 1] + margins. The margin Tensor
+    can be used to enforce or loosen this condition.
+
+    Return:
+      labels, bboxes: Filtered elements.
+    """
+    with tf.name_scope(scope):
+        cy = (bboxes[:, 0] + bboxes[:, 2]) / 2.
+        cx = (bboxes[:, 1] + bboxes[:, 3]) / 2.
+        mask = tf.greater(cy, margins[0])
+        mask = tf.logical_and(mask, tf.greater(cx, margins[1]))
+        mask = tf.logical_and(mask, tf.less(cx, 1. + margins[2]))
+        mask = tf.logical_and(mask, tf.less(cx, 1. + margins[3]))
+        # Boolean masking...
+        labels = tf.boolean_mask(labels, mask)
+        bboxes = tf.boolean_mask(bboxes, mask)
+        return labels, bboxes
 
 # =========================================================================== #
 # Numpy implementations of SSD boxes functions.
