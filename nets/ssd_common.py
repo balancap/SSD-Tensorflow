@@ -227,7 +227,6 @@ def tf_bboxes_resize(bbox_ref, bboxes,
     assuming that the latter is [0, 0, 1, 1] after transform.
     """
     with tf.name_scope(scope):
-        bboxes = np.copy(bboxes)
         # Translate.
         v = tf.stack([bbox_ref[0], bbox_ref[1], bbox_ref[0], bbox_ref[1]])
         bboxes = bboxes - v

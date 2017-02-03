@@ -89,7 +89,7 @@ def tf_summary_image(image, bboxes, name='image', unwhitened=False):
     image = tf.expand_dims(image, 0)
     bboxes = tf.expand_dims(bboxes, 0)
     image_with_box = tf.image.draw_bounding_boxes(image, bboxes)
-    tf.image_summary(name, image_with_box)
+    tf.summary.image(name, image_with_box)
 
 
 def apply_with_random_selector(x, func, num_cases):
@@ -167,9 +167,9 @@ def distort_color(image, color_ordering=0, fast_mode=True, scope=None):
 def distorted_bounding_box_crop(image,
                                 labels,
                                 bboxes,
-                                min_object_covered=0.1,
+                                min_object_covered=0.2,
                                 aspect_ratio_range=(0.75, 1.33),
-                                area_range=(0.05, 1.0),
+                                area_range=(0.1, 1.0),
                                 max_attempts=100,
                                 scope=None):
     """Generates cropped_image using a one of the bboxes randomly distorted.

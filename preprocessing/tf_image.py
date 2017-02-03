@@ -114,6 +114,22 @@ def _Check3DImage(image, require_static=True):
         return []
 
 
+def fix_image_flip_shape(image, result):
+    """Set the shape to 3 dimensional if we don't know anything else.
+    Args:
+      image: original image size
+      result: flipped or transformed image
+    Returns:
+      An image whose shape is at least None,None,None.
+    """
+    image_shape = image.get_shape()
+    if image_shape == tensor_shape.unknown_shape():
+        result.set_shape([None, None, None])
+    else:
+        result.set_shape(image_shape)
+    return result
+
+
 def bboxes_crop_or_pad(bboxes,
                        height, width,
                        offset_y, offset_x,
@@ -257,13 +273,29 @@ def resize_image(image, size,
         return image
 
 
-def random_flip_left_right(image, bboxes):
+def random_flip_left_right(image, bboxes, seed=None):
     """Random flip left-right of an image and its bounding boxes.
     """
-    # Resize image.
+    def flip_bboxes(bboxes):
+        """Flip bounding boxes coordinates.
+        """
+        bboxes = tf.stack([bboxes[:, 0], 1 - bboxes[:, 3],
+                           bboxes[:, 2], 1 - bboxes[:, 1]], axis=-1)
+        return bboxes
+
+    # Random flip. Tensorflow implementation.
     with tf.name_scope('random_flip_left_right'):
-        image = tf.image.random_flip_left_right(image)
-        offset = tf.constant([[1., 0., 1., 0.]])
-        bboxes = offset - bboxes
-        return image, bboxes
+        image = ops.convert_to_tensor(image, name='image')
+        _Check3DImage(image, require_static=False)
+        uniform_random = random_ops.random_uniform([], 0, 1.0, seed=seed)
+        mirror_cond = math_ops.less(uniform_random, .5)
+        # Flip image.
+        result = control_flow_ops.cond(mirror_cond,
+                                       lambda: array_ops.reverse_v2(image, [1]),
+                                       lambda: image)
+        # Flip bboxes.
+        bboxes = control_flow_ops.cond(mirror_cond,
+                                       lambda: flip_bboxes(bboxes),
+                                       lambda: bboxes)
+        return fix_image_flip_shape(image, result), bboxes
 
