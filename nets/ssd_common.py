@@ -19,12 +19,14 @@ import tensorflow as tf
 
 
 # =========================================================================== #
-# TensorFlow implementation of some bboxes methods.
+# TensorFlow implementation of boxes SSD encoding / decoding.
 # =========================================================================== #
 def tf_ssd_bboxes_encode_layer(labels,
                                bboxes,
                                anchors_layer,
-                               matching_threshold=0.5,
+                               num_classes,
+                               no_annotation_label,
+                               ignore_threshold=0.5,
                                prior_scaling=[0.1, 0.1, 0.2, 0.2],
                                dtype=tf.float32):
     """Encode groundtruth labels and bounding boxes using SSD anchors from
@@ -59,22 +61,33 @@ def tf_ssd_bboxes_encode_layer(labels,
     feat_xmax = tf.ones(shape, dtype=dtype)
 
     def jaccard_with_anchors(bbox):
-        """Compute jaccard score a box and the anchors.
+        """Compute jaccard score between a box and the anchors.
         """
-        # Intersection bbox and volume.
         int_ymin = tf.maximum(ymin, bbox[0])
         int_xmin = tf.maximum(xmin, bbox[1])
         int_ymax = tf.minimum(ymax, bbox[2])
         int_xmax = tf.minimum(xmax, bbox[3])
         h = tf.maximum(int_ymax - int_ymin, 0.)
         w = tf.maximum(int_xmax - int_xmin, 0.)
-
         # Volumes.
         inter_vol = h * w
         union_vol = vol_anchors - inter_vol \
             + (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
         jaccard = tf.div(inter_vol, union_vol)
         return jaccard
+
+    def intersection_with_anchors(bbox):
+        """Compute intersection between score a box and the anchors.
+        """
+        int_ymin = tf.maximum(ymin, bbox[0])
+        int_xmin = tf.maximum(xmin, bbox[1])
+        int_ymax = tf.minimum(ymax, bbox[2])
+        int_xmax = tf.minimum(xmax, bbox[3])
+        h = tf.maximum(int_ymax - int_ymin, 0.)
+        w = tf.maximum(int_xmax - int_xmin, 0.)
+        inter_vol = h * w
+        scores = tf.div(inter_vol, vol_anchors)
+        return scores
 
     def condition(i, feat_labels, feat_scores,
                   feat_ymin, feat_xmin, feat_ymax, feat_xmax):
@@ -93,20 +106,30 @@ def tf_ssd_bboxes_encode_layer(labels,
         # Jaccard score.
         label = labels[i]
         bbox = bboxes[i]
-        scores = jaccard_with_anchors(bbox)
-        # 'Boolean' mask.
-        mask = tf.logical_and(tf.greater(scores, matching_threshold),
-                              tf.greater(scores, feat_scores))
+        jaccard = jaccard_with_anchors(bbox)
+        # Mask: check threshold + scores + no annotations + num_classes.
+        mask = tf.greater(jaccard, feat_scores)
+        # mask = tf.logical_and(mask, tf.greater(jaccard, matching_threshold))
+        mask = tf.logical_and(mask, feat_scores > -0.5)
+        mask = tf.logical_and(mask, label < num_classes)
         imask = tf.cast(mask, tf.int64)
         fmask = tf.cast(mask, dtype)
         # Update values using mask.
         feat_labels = imask * label + (1 - imask) * feat_labels
-        feat_scores = tf.select(mask, scores, feat_scores)
+        feat_scores = tf.select(mask, jaccard, feat_scores)
 
         feat_ymin = fmask * bbox[0] + (1 - fmask) * feat_ymin
         feat_xmin = fmask * bbox[1] + (1 - fmask) * feat_xmin
         feat_ymax = fmask * bbox[2] + (1 - fmask) * feat_ymax
         feat_xmax = fmask * bbox[3] + (1 - fmask) * feat_xmax
+
+        # Check no annotation label: ignore these anchors...
+        interscts = intersection_with_anchors(bbox)
+        mask = tf.logical_and(interscts > ignore_threshold,
+                              label == no_annotation_label)
+        # Replace scores by -1.
+        feat_scores = tf.select(mask, -tf.cast(mask, dtype), feat_scores)
+
         return [i+1, feat_labels, feat_scores,
                 feat_ymin, feat_xmin, feat_ymax, feat_xmax]
     # Main loop definition.
@@ -135,7 +158,9 @@ def tf_ssd_bboxes_encode_layer(labels,
 def tf_ssd_bboxes_encode(labels,
                          bboxes,
                          anchors,
-                         matching_threshold=0.5,
+                         num_classes,
+                         no_annotation_label,
+                         ignore_threshold=0.5,
                          prior_scaling=[0.1, 0.1, 0.2, 0.2],
                          dtype=tf.float32,
                          scope='ssd_bboxes_encode'):
@@ -161,7 +186,9 @@ def tf_ssd_bboxes_encode(labels,
             with tf.name_scope('bboxes_encode_block_%i' % i):
                 t_labels, t_loc, t_scores = \
                     tf_ssd_bboxes_encode_layer(labels, bboxes, anchors_layer,
-                                               matching_threshold, prior_scaling, dtype)
+                                               num_classes, no_annotation_label,
+                                               ignore_threshold,
+                                               prior_scaling, dtype)
                 target_labels.append(t_labels)
                 target_localizations.append(t_loc)
                 target_scores.append(t_scores)
@@ -221,6 +248,60 @@ def tf_ssd_bboxes_decode(feat_localizations,
         return bboxes
 
 
+# =========================================================================== #
+# Additional TF bboxes methods.
+# =========================================================================== #
+def tf_bboxes_jaccard(bbox_ref, bboxes):
+        """Compute jaccard score between a reference box and a collection
+        of bounding boxes.
+
+        Args:
+          bbox_ref: Reference bounding box. 1x4 or 4 Tensor.
+          bboxes: Nx4 Tensor, collection of bounding boxes.
+        Return:
+          Nx4 Tensor with Jaccard scores.
+        """
+        # Intersection bbox and volume.
+        int_ymin = tf.maximum(bboxes[:, 0], bbox_ref[0])
+        int_xmin = tf.maximum(bboxes[:, 1], bbox_ref[1])
+        int_ymax = tf.minimum(bboxes[:, 2], bbox_ref[2])
+        int_xmax = tf.minimum(bboxes[:, 3], bbox_ref[3])
+        h = tf.maximum(int_ymax - int_ymin, 0.)
+        w = tf.maximum(int_xmax - int_xmin, 0.)
+        # Volumes.
+        inter_vol = h * w
+        union_vol = -inter_vol \
+            + (bboxes[:, 2] - bboxes[:, 0]) * (bboxes[:, 3] - bboxes[:, 1]) \
+            + (bbox_ref[2] - bbox_ref[0]) * (bbox_ref[3] - bbox_ref[1])
+        jaccard = tf.div(inter_vol, union_vol)
+        return jaccard
+
+
+def tf_bboxes_intersection(bbox_ref, bboxes):
+        """Compute relative intersection between a reference box and a
+        collection of bounding boxes. Namely, compute the quotient between
+        intersection area and box area.
+
+        Args:
+          bbox_ref: Reference bounding box. 1x4 or 4 Tensor.
+          bboxes: Nx4 Tensor, collection of bounding boxes.
+        Return:
+          Nx4 Tensor with relative intersection.
+        """
+        # Intersection bbox and volume.
+        int_ymin = tf.maximum(bboxes[:, 0], bbox_ref[0])
+        int_xmin = tf.maximum(bboxes[:, 1], bbox_ref[1])
+        int_ymax = tf.minimum(bboxes[:, 2], bbox_ref[2])
+        int_xmax = tf.minimum(bboxes[:, 3], bbox_ref[3])
+        h = tf.maximum(int_ymax - int_ymin, 0.)
+        w = tf.maximum(int_xmax - int_xmin, 0.)
+        # Volumes.
+        inter_vol = h * w
+        bboxes_vol = (bboxes[:, 2] - bboxes[:, 0]) * (bboxes[:, 3] - bboxes[:, 1])
+        scores = tf.div(inter_vol, bboxes_vol)
+        return scores
+
+
 def tf_bboxes_resize(bbox_ref, bboxes,
                      scope='bboxes_resize'):
     """Resize bounding boxes based on a reference bounding box,
@@ -239,8 +320,9 @@ def tf_bboxes_resize(bbox_ref, bboxes,
         return bboxes
 
 
-def tf_bboxes_filter(labels, bboxes, margins=[0., 0., 0., 0.],
-                     scope='bboxes_filter'):
+def tf_bboxes_filter_center(labels, bboxes,
+                            margins=[0., 0., 0., 0.],
+                            scope=None):
     """Filter out bounding boxes whose center are not in
     the rectangle [0, 0, 1, 1] + margins. The margin Tensor
     can be used to enforce or loosen this condition.
@@ -248,7 +330,7 @@ def tf_bboxes_filter(labels, bboxes, margins=[0., 0., 0., 0.],
     Return:
       labels, bboxes: Filtered elements.
     """
-    with tf.name_scope(scope):
+    with tf.name_scope(scope, 'bboxes_filter', [labels, bboxes]):
         cy = (bboxes[:, 0] + bboxes[:, 2]) / 2.
         cx = (bboxes[:, 1] + bboxes[:, 3]) / 2.
         mask = tf.greater(cy, margins[0])
@@ -256,6 +338,43 @@ def tf_bboxes_filter(labels, bboxes, margins=[0., 0., 0., 0.],
         mask = tf.logical_and(mask, tf.less(cx, 1. + margins[2]))
         mask = tf.logical_and(mask, tf.less(cx, 1. + margins[3]))
         # Boolean masking...
+        labels = tf.boolean_mask(labels, mask)
+        bboxes = tf.boolean_mask(bboxes, mask)
+        return labels, bboxes
+
+
+def tf_bboxes_filter_overlap(labels, bboxes,
+                             threshold=0.5,
+                             scope=None):
+    """Filter out bounding boxes based on overlap with reference
+    box [0, 0, 1, 1].
+
+    Return:
+      labels, bboxes: Filtered elements.
+    """
+    with tf.name_scope(scope, 'bboxes_filter', [labels, bboxes]):
+        scores = tf_bboxes_intersection(tf.constant([0, 0, 1, 1], bboxes.dtype),
+                                        bboxes)
+        # Boolean masking...
+        mask = scores > threshold
+        labels = tf.boolean_mask(labels, mask)
+        bboxes = tf.boolean_mask(bboxes, mask)
+        return labels, bboxes
+
+
+def tf_bboxes_filter_labels(labels, bboxes,
+                            out_labels=[], num_classes=np.inf,
+                            scope=None):
+    """Filter out labels from a collection. Typically used to get
+    of DontCare elements. Also remove elements based on the number of classes.
+
+    Return:
+      labels, bboxes: Filtered elements.
+    """
+    with tf.name_scope(scope, 'bboxes_filter_labels', [labels, bboxes]):
+        mask = tf.greater_equal(labels, num_classes)
+        for l in labels:
+            mask = tf.logical_and(mask, tf.not_equal(labels, l))
         labels = tf.boolean_mask(labels, mask)
         bboxes = tf.boolean_mask(bboxes, mask)
         return labels, bboxes
@@ -432,6 +551,27 @@ def bboxes_jaccard(bboxes1, bboxes2):
     vol2 = (bboxes2[:, 2] - bboxes2[:, 0]) * (bboxes2[:, 3] - bboxes2[:, 1])
     jaccard = int_vol / (vol1 + vol2 - int_vol)
     return jaccard
+
+
+def bboxes_intersection(bbox, bboxes):
+    """Computing jaccard index between bboxes1 and bboxes2.
+    Note: bboxes1 can be multi-dimensional.
+    """
+    if bboxes.ndim == 1:
+        bboxes = np.expand_dims(bboxes, 0)
+    # Intersection bbox and volume.
+    int_ymin = np.maximum(bboxes[:, 0], bbox[0])
+    int_xmin = np.maximum(bboxes[:, 1], bbox[1])
+    int_ymax = np.minimum(bboxes[:, 2], bbox[2])
+    int_xmax = np.minimum(bboxes[:, 3], bbox[3])
+
+    int_h = np.maximum(int_ymax - int_ymin, 0.)
+    int_w = np.maximum(int_xmax - int_xmin, 0.)
+    int_vol = int_h * int_w
+    # Union volume.
+    vol = (bboxes[:, 2] - bboxes[:, 0]) * (bboxes[:, 3] - bboxes[:, 1])
+    score = int_vol / vol
+    return score
 
 
 def bboxes_nms(classes, scores, bboxes, threshold=0.45):

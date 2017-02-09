@@ -35,6 +35,10 @@ _R_MEAN = 123.
 _G_MEAN = 117.
 _B_MEAN = 104.
 
+# Some training pre-processing parameters.
+BBOX_CROP_OVERLAP = 0.4        # Minimum overlap to keep a bbox after cropping.
+CROP_RATIO_RANGE = (0.8, 1.2)  # Distortion ratio during cropping.
+
 
 def tf_image_whitened(image, means=[_R_MEAN, _G_MEAN, _B_MEAN]):
     """Subtracts the given means from each image channel.
@@ -167,10 +171,10 @@ def distort_color(image, color_ordering=0, fast_mode=True, scope=None):
 def distorted_bounding_box_crop(image,
                                 labels,
                                 bboxes,
-                                min_object_covered=0.2,
-                                aspect_ratio_range=(0.75, 1.33),
+                                min_object_covered=0.05,
+                                aspect_ratio_range=(0.9, 1.1),
                                 area_range=(0.1, 1.0),
-                                max_attempts=100,
+                                max_attempts=200,
                                 scope=None):
     """Generates cropped_image using a one of the bboxes randomly distorted.
 
@@ -216,9 +220,8 @@ def distorted_bounding_box_crop(image,
 
         # Update bounding boxes: resize and filter out.
         bboxes = ssd_common.tf_bboxes_resize(distort_bbox, bboxes)
-        labels, bboxes = ssd_common.tf_bboxes_filter(labels,
-                                                     bboxes,
-                                                     [0., 0., 0., 0.])
+        labels, bboxes = ssd_common.tf_bboxes_filter_overlap(labels, bboxes,
+                                                             BBOX_CROP_OVERLAP)
         return cropped_image, labels, bboxes, distort_bbox
 
 
@@ -250,9 +253,16 @@ def preprocess_for_train(image, labels, bboxes, out_shape,
             image = tf.image.convert_image_dtype(image, dtype=tf.float32)
         tf_summary_image(image, bboxes, 'image_with_bboxes')
 
+        # # Remove DontCare labels.
+        # labels, bboxes = ssd_common.tf_bboxes_filter_labels(out_label,
+        #                                                     labels,
+        #                                                     bboxes)
+
         # Distort image and bounding boxes.
+        dst_image = image
         dst_image, labels, bboxes, distort_bbox = \
-            distorted_bounding_box_crop(image, labels, bboxes)
+            distorted_bounding_box_crop(image, labels, bboxes,
+                                        aspect_ratio_range=CROP_RATIO_RANGE)
         # Resize image to output size.
         dst_image = tf_image.resize_image(dst_image, out_shape,
                                           method=tf.image.ResizeMethod.BILINEAR,

@@ -12,7 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Custom image operations. Some of them extends TensorFlow image library.
+"""Custom image operations.
+Most of the following methods extend TensorFlow image library, and part of
+the code is shameless copy-paste of the former!
 """
 import tensorflow as tf
 
@@ -130,6 +132,9 @@ def fix_image_flip_shape(image, result):
     return result
 
 
+# =========================================================================== #
+# Image + BBoxes methods: cropping, resizing, flipping, ...
+# =========================================================================== #
 def bboxes_crop_or_pad(bboxes,
                        height, width,
                        offset_y, offset_x,

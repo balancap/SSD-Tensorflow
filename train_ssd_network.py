@@ -13,6 +13,8 @@
 # limitations under the License.
 # ==============================================================================
 """Generic training script that trains a SSD model using a given dataset."""
+from pprint import pprint
+
 import tensorflow as tf
 from tensorflow.python.ops import control_flow_ops
 
@@ -115,6 +117,8 @@ tf.app.flags.DEFINE_float(
 # =========================================================================== #
 tf.app.flags.DEFINE_string(
     'dataset_name', 'imagenet', 'The name of the dataset to load.')
+tf.app.flags.DEFINE_integer(
+    'num_classes', 21, 'Number of classes to use in the dataset.')
 tf.app.flags.DEFINE_string(
     'dataset_split_name', 'train', 'The name of the train/test split.')
 tf.app.flags.DEFINE_string(
@@ -341,6 +345,8 @@ def _reshape_list(l, shape=None):
 def main(_):
     if not FLAGS.dataset_dir:
         raise ValueError('You must supply the dataset directory with --dataset_dir')
+    print('Training FLAGS:')
+    pprint(FLAGS.__flags)
 
     tf.logging.set_verbosity(tf.logging.DEBUG)
     with tf.Graph().as_default():
@@ -361,9 +367,12 @@ def main(_):
             FLAGS.dataset_name, FLAGS.dataset_split_name, FLAGS.dataset_dir)
 
         # Get the SSD network and its anchors.
-        ssd_net = nets_factory.get_network(FLAGS.model_name)
+        ssd_class = nets_factory.get_network(FLAGS.model_name)
+        ssd_params = ssd_class.default_params._replace(num_classes=FLAGS.num_classes)
+        ssd_net = ssd_class(ssd_params)
         ssd_shape = ssd_net.params.img_shape
         ssd_anchors = ssd_net.anchors(ssd_shape)
+        pprint(dict(ssd_params._asdict()))
 
         # Select the preprocessing function.
         preprocessing_name = FLAGS.preprocessing_name or FLAGS.model_name
@@ -506,6 +515,11 @@ def main(_):
         # =================================================================== #
         # Kicks off the training.
         # =================================================================== #
+        config = tf.ConfigProto(log_device_placement=False)
+        saver = tf.train.Saver(max_to_keep=5,
+                               keep_checkpoint_every_n_hours=1.0,
+                               write_version=2,
+                               pad_step_number=False)
         slim.learning.train(
             train_tensor,
             logdir=FLAGS.train_dir,
@@ -516,8 +530,10 @@ def main(_):
             number_of_steps=FLAGS.max_number_of_steps,
             log_every_n_steps=FLAGS.log_every_n_steps,
             save_summaries_secs=FLAGS.save_summaries_secs,
+            saver=saver,
             save_interval_secs=FLAGS.save_interval_secs,
-            sync_optimizer=None)
+            sync_optimizer=None,
+            session_config=config)
 
 
 if __name__ == '__main__':

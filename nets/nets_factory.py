@@ -12,30 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Contains a factory for building various models."""
-
+"""Contains a factory for building various models.
+"""
 
 import functools
 import tensorflow as tf
 
-from nets import inception
+# from nets import inception
 # from nets import overfeat
 # from nets import resnet_v1
 # from nets import resnet_v2
 from nets import vgg
-from nets import xception
+# from nets import xception
 
 from nets import ssd_vgg_300
-from nets import ssd_vgg_512
 
 slim = tf.contrib.slim
 
 networks_map = {'vgg_a': vgg.vgg_a,
                 'vgg_16': vgg.vgg_16,
                 'vgg_19': vgg.vgg_19,
-                'inception_v3': inception.inception_v3,
-                'inception_resnet_v2': inception.inception_resnet_v2,
-                'xception': xception.xception,
                 'ssd_300_vgg': ssd_vgg_300.ssd_net,
                 'ssd_300_vgg_caffe': ssd_vgg_300.ssd_net,
                 }
@@ -43,23 +39,19 @@ networks_map = {'vgg_a': vgg.vgg_a,
 arg_scopes_map = {'vgg_a': vgg.vgg_arg_scope,
                   'vgg_16': vgg.vgg_arg_scope,
                   'vgg_19': vgg.vgg_arg_scope,
-                  'inception_v3': inception.inception_v3_arg_scope,
-                  'inception_resnet_v2': inception.inception_resnet_v2_arg_scope,
-                  'xception': xception.xception_arg_scope,
                   'ssd_300_vgg': ssd_vgg_300.ssd_arg_scope,
                   'ssd_300_vgg_caffe': ssd_vgg_300.ssd_arg_scope_caffe,
                   }
 
 networks_obj = {'ssd_300_vgg': ssd_vgg_300.SSDNet,
-                'ssd_512_vgg': ssd_vgg_512.SSDNet,
                 }
 
 
-def get_network(name, params=None):
+def get_network(name):
     """Get a network object from a name.
     """
-    params = networks_obj[name].default_params if params is None else params
-    return networks_obj[name](params)
+    # params = networks_obj[name].default_params if params is None else params
+    return networks_obj[name]
 
 
 def get_network_fn(name, num_classes, is_training=False, **kwargs):
