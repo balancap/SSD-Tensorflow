@@ -17,7 +17,6 @@ from pprint import pprint
 
 import tensorflow as tf
 from tensorflow.python.ops import control_flow_ops
-from tensorflow.contrib.slim.python.slim.data import parallel_reader
 
 from datasets import dataset_factory
 from deployment import model_deploy
@@ -168,8 +167,6 @@ FLAGS = tf.app.flags.FLAGS
 def main(_):
     if not FLAGS.dataset_dir:
         raise ValueError('You must supply the dataset directory with --dataset_dir')
-    print('Training FLAGS:')
-    pprint(FLAGS.__flags)
 
     tf.logging.set_verbosity(tf.logging.DEBUG)
     with tf.Graph().as_default():
@@ -188,22 +185,19 @@ def main(_):
         # Select the dataset.
         dataset = dataset_factory.get_dataset(
             FLAGS.dataset_name, FLAGS.dataset_split_name, FLAGS.dataset_dir)
-        data_files = parallel_reader.get_data_files(dataset.data_sources)
-        pprint(data_files)
-
         # Get the SSD network and its anchors.
         ssd_class = nets_factory.get_network(FLAGS.model_name)
         ssd_params = ssd_class.default_params._replace(num_classes=FLAGS.num_classes)
         ssd_net = ssd_class(ssd_params)
         ssd_shape = ssd_net.params.img_shape
         ssd_anchors = ssd_net.anchors(ssd_shape)
-        pprint(dict(ssd_params._asdict()))
-
         # Select the preprocessing function.
         preprocessing_name = FLAGS.preprocessing_name or FLAGS.model_name
         image_preprocessing_fn = preprocessing_factory.get_preprocessing(
             preprocessing_name, is_training=True)
 
+        tf_utils.print_configuration(FLAGS.__flags, ssd_params,
+                                     dataset.data_sources, FLAGS.train_dir)
         # =================================================================== #
         # Create a dataset provider and batches.
         # =================================================================== #
