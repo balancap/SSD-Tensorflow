@@ -13,8 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 """Generic training script that trains a SSD model using a given dataset."""
-from pprint import pprint
-
 import tensorflow as tf
 from tensorflow.python.ops import control_flow_ops
 
