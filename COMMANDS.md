@@ -22,7 +22,7 @@ python caffe_to_tensorflow.py \
 # VGG-based SSD network
 # =========================================================================== #
 DATASET_DIR=/media/paul/DataExt4/PascalVOC/dataset
-TRAIN_DIR=./logs/ssd_300_vgg
+TRAIN_DIR=./logs/ssd_300_vgg_2
 CHECKPOINT_PATH=/media/paul/DataExt4/PascalVOC/training/ckpts/SSD_300x300_ft/ssd_300_vgg.ckpt
 CHECKPOINT_PATH=./checkpoints/ssd_300_vgg.ckpt
 python train_ssd_network.py \
@@ -33,11 +33,12 @@ python train_ssd_network.py \
     --model_name=ssd_300_vgg \
     --checkpoint_path=${CHECKPOINT_PATH} \
     --save_summaries_secs=60 \
-    --save_interval_secs=60 \
-    --weight_decay=0.00005 \
-    --optimizer=rmsprop \
-    --learning_rate=0.0001 \
-    --batch_size=1
+    --save_interval_secs=600 \
+    --weight_decay=0.0005 \
+    --optimizer=adam \
+    --learning_rate=0.01 \
+    --learning_rate_decay_factor=0.95 \
+    --batch_size=32
 
 
 # =========================================================================== #

@@ -1,4 +1,4 @@
-# Copyright 2016 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2016 Paul Balanca. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,11 +17,13 @@ from pprint import pprint
 
 import tensorflow as tf
 from tensorflow.python.ops import control_flow_ops
+from tensorflow.contrib.slim.python.slim.data import parallel_reader
 
 from datasets import dataset_factory
 from deployment import model_deploy
 from nets import nets_factory
 from preprocessing import preprocessing_factory
+import tf_utils
 
 slim = tf.contrib.slim
 
@@ -33,7 +35,6 @@ tf.app.flags.DEFINE_integer('num_clones', 1,
                             'Number of model clones to deploy.')
 tf.app.flags.DEFINE_boolean('clone_on_cpu', False,
                             'Use CPUs to deploy clones.')
-
 tf.app.flags.DEFINE_integer(
     'num_readers', 4,
     'The number of parallel readers that read data from the dataset.')
@@ -161,184 +162,6 @@ tf.app.flags.DEFINE_boolean(
 FLAGS = tf.app.flags.FLAGS
 
 
-def _configure_learning_rate(num_samples_per_epoch, global_step):
-    """Configures the learning rate.
-
-    Args:
-      num_samples_per_epoch: The number of samples in each epoch of training.
-      global_step: The global_step tensor.
-    Returns:
-      A `Tensor` representing the learning rate.
-    """
-    decay_steps = int(num_samples_per_epoch / FLAGS.batch_size *
-                      FLAGS.num_epochs_per_decay)
-
-    if FLAGS.learning_rate_decay_type == 'exponential':
-        return tf.train.exponential_decay(FLAGS.learning_rate,
-                                          global_step,
-                                          decay_steps,
-                                          FLAGS.learning_rate_decay_factor,
-                                          staircase=True,
-                                          name='exponential_decay_learning_rate')
-    elif FLAGS.learning_rate_decay_type == 'fixed':
-        return tf.constant(FLAGS.learning_rate, name='fixed_learning_rate')
-    elif FLAGS.learning_rate_decay_type == 'polynomial':
-        return tf.train.polynomial_decay(FLAGS.learning_rate,
-                                         global_step,
-                                         decay_steps,
-                                         FLAGS.end_learning_rate,
-                                         power=1.0,
-                                         cycle=False,
-                                         name='polynomial_decay_learning_rate')
-    else:
-        raise ValueError('learning_rate_decay_type [%s] was not recognized',
-                         FLAGS.learning_rate_decay_type)
-
-
-def _configure_optimizer(learning_rate):
-    """Configures the optimizer used for training.
-
-    Args:
-      learning_rate: A scalar or `Tensor` learning rate.
-    Returns:
-      An instance of an optimizer.
-    """
-    if FLAGS.optimizer == 'adadelta':
-        optimizer = tf.train.AdadeltaOptimizer(
-            learning_rate,
-            rho=FLAGS.adadelta_rho,
-            epsilon=FLAGS.opt_epsilon)
-    elif FLAGS.optimizer == 'adagrad':
-        optimizer = tf.train.AdagradOptimizer(
-            learning_rate,
-            initial_accumulator_value=FLAGS.adagrad_initial_accumulator_value)
-    elif FLAGS.optimizer == 'adam':
-        optimizer = tf.train.AdamOptimizer(
-            learning_rate,
-            beta1=FLAGS.adam_beta1,
-            beta2=FLAGS.adam_beta2,
-            epsilon=FLAGS.opt_epsilon)
-    elif FLAGS.optimizer == 'ftrl':
-        optimizer = tf.train.FtrlOptimizer(
-            learning_rate,
-            learning_rate_power=FLAGS.ftrl_learning_rate_power,
-            initial_accumulator_value=FLAGS.ftrl_initial_accumulator_value,
-            l1_regularization_strength=FLAGS.ftrl_l1,
-            l2_regularization_strength=FLAGS.ftrl_l2)
-    elif FLAGS.optimizer == 'momentum':
-        optimizer = tf.train.MomentumOptimizer(
-            learning_rate,
-            momentum=FLAGS.momentum,
-            name='Momentum')
-    elif FLAGS.optimizer == 'rmsprop':
-        optimizer = tf.train.RMSPropOptimizer(
-            learning_rate,
-            decay=FLAGS.rmsprop_decay,
-            momentum=FLAGS.rmsprop_momentum,
-            epsilon=FLAGS.opt_epsilon)
-    elif FLAGS.optimizer == 'sgd':
-        optimizer = tf.train.GradientDescentOptimizer(learning_rate)
-    else:
-        raise ValueError('Optimizer [%s] was not recognized', FLAGS.optimizer)
-    return optimizer
-
-
-def _add_variables_summaries(learning_rate):
-    summaries = []
-    for variable in slim.get_model_variables():
-        summaries.append(tf.summary.histogram(variable.op.name, variable))
-    summaries.append(tf.summary.scalar('training/Learning Rate', learning_rate))
-    return summaries
-
-
-def _get_init_fn():
-    """Returns a function run by the chief worker to warm-start the training.
-    Note that the init_fn is only run when initializing the model during the very
-    first global step.
-
-    Returns:
-      An init function run by the supervisor.
-    """
-    if FLAGS.checkpoint_path is None:
-        return None
-
-    # Warn the user if a checkpoint exists in the train_dir. Then we'll be
-    # ignoring the checkpoint anyway.
-    if tf.train.latest_checkpoint(FLAGS.train_dir):
-        tf.logging.info(
-            'Ignoring --checkpoint_path because a checkpoint already exists in %s'
-            % FLAGS.train_dir)
-        return None
-
-    exclusions = []
-    if FLAGS.checkpoint_exclude_scopes:
-        exclusions = [scope.strip()
-                      for scope in FLAGS.checkpoint_exclude_scopes.split(',')]
-
-    # TODO(sguada) variables.filter_variables()
-    variables_to_restore = []
-    for var in slim.get_model_variables():
-        excluded = False
-        for exclusion in exclusions:
-            if var.op.name.startswith(exclusion):
-                excluded = True
-                break
-        if not excluded:
-            variables_to_restore.append(var)
-
-    if tf.gfile.IsDirectory(FLAGS.checkpoint_path):
-        checkpoint_path = tf.train.latest_checkpoint(FLAGS.checkpoint_path)
-    else:
-        checkpoint_path = FLAGS.checkpoint_path
-    tf.logging.info('Fine-tuning from %s' % checkpoint_path)
-
-    return slim.assign_from_checkpoint_fn(
-        checkpoint_path,
-        variables_to_restore,
-        ignore_missing_vars=FLAGS.ignore_missing_vars)
-
-
-def _get_variables_to_train():
-    """Returns a list of variables to train.
-
-    Returns:
-      A list of variables to train by the optimizer.
-    """
-    if FLAGS.trainable_scopes is None:
-        return tf.trainable_variables()
-    else:
-        scopes = [scope.strip() for scope in FLAGS.trainable_scopes.split(',')]
-
-    variables_to_train = []
-    for scope in scopes:
-        variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope)
-        variables_to_train.extend(variables)
-    return variables_to_train
-
-
-def _reshape_list(l, shape=None):
-    """Reshape list of (list): 1D to 2D and the other way.
-    """
-    r = []
-    if shape is None:
-        # Flatten everything.
-        for a in l:
-            if isinstance(a, (list, tuple)):
-                r = r + list(a)
-            else:
-                r.append(a)
-    else:
-        # Reshape to list of list.
-        i = 0
-        for s in shape:
-            if s == 1:
-                r.append(l[i])
-            else:
-                r.append(l[i:i+s])
-            i += s
-    return r
-
-
 # =========================================================================== #
 # Main training routine.
 # =========================================================================== #
@@ -365,6 +188,8 @@ def main(_):
         # Select the dataset.
         dataset = dataset_factory.get_dataset(
             FLAGS.dataset_name, FLAGS.dataset_split_name, FLAGS.dataset_dir)
+        data_files = parallel_reader.get_data_files(dataset.data_sources)
+        pprint(data_files)
 
         # Get the SSD network and its anchors.
         ssd_class = nets_factory.get_network(FLAGS.model_name)
@@ -404,17 +229,17 @@ def main(_):
 
             # Training batches and queue.
             r = tf.train.batch(
-                _reshape_list([image, gclasses, glocalisations, gscores]),
+                tf_utils.reshape_list([image, gclasses, glocalisations, gscores]),
                 batch_size=FLAGS.batch_size,
                 num_threads=FLAGS.num_preprocessing_threads,
                 capacity=5 * FLAGS.batch_size)
             b_image, b_gclasses, b_glocalisations, b_gscores = \
-                _reshape_list(r, batch_shape)
+                tf_utils.reshape_list(r, batch_shape)
 
             # Intermediate queueing: unique batch computation pipeline for all
             # GPUs running the training.
             batch_queue = slim.prefetch_queue.prefetch_queue(
-                _reshape_list([b_image, b_gclasses, b_glocalisations, b_gscores]),
+                tf_utils.reshape_list([b_image, b_gclasses, b_glocalisations, b_gscores]),
                 capacity=2 * deploy_config.num_clones)
 
         # =================================================================== #
@@ -425,15 +250,14 @@ def main(_):
             clones of network_fn."""
             # Dequeue batch.
             b_image, b_gclasses, b_glocalisations, b_gscores = \
-                _reshape_list(batch_queue.dequeue(), batch_shape)
+                tf_utils.reshape_list(batch_queue.dequeue(), batch_shape)
 
             # Construct SSD network.
             arg_scope = ssd_net.arg_scope(weight_decay=FLAGS.weight_decay)
             with slim.arg_scope(arg_scope):
                 predictions, localisations, logits, end_points = \
                     ssd_net.net(b_image, is_training=True)
-
-            # Add loss functions.
+            # Add loss function.
             ssd_net.losses(logits, localisations,
                            b_gclasses, b_glocalisations, b_gscores,
                            label_smoothing=FLAGS.label_smoothing)
@@ -479,8 +303,10 @@ def main(_):
         # Configure the optimization procedure.
         # =================================================================== #
         with tf.device(deploy_config.optimizer_device()):
-            learning_rate = _configure_learning_rate(dataset.num_samples, global_step)
-            optimizer = _configure_optimizer(learning_rate)
+            learning_rate = tf_utils.configure_learning_rate(FLAGS,
+                                                             dataset.num_samples,
+                                                             global_step)
+            optimizer = tf_utils.configure_optimizer(FLAGS, learning_rate)
             summaries.add(tf.summary.scalar('learning_rate', learning_rate))
 
         if FLAGS.moving_average_decay:
@@ -488,7 +314,7 @@ def main(_):
             update_ops.append(variable_averages.apply(moving_average_variables))
 
         # Variables to train.
-        variables_to_train = _get_variables_to_train()
+        variables_to_train = tf_utils.get_variables_to_train(FLAGS)
 
         # and returns a train_tensor and summary_op
         total_loss, clones_gradients = model_deploy.optimize_clones(
@@ -525,7 +351,7 @@ def main(_):
             logdir=FLAGS.train_dir,
             master='',
             is_chief=True,
-            init_fn=_get_init_fn(),
+            init_fn=tf_utils.get_init_fn(FLAGS),
             summary_op=summary_op,
             number_of_steps=FLAGS.max_number_of_steps,
             log_every_n_steps=FLAGS.log_every_n_steps,

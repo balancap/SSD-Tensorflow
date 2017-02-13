@@ -13,3 +13,4 @@ checkpoints/ssd_300_vgg.ckpt.index
 
 logs/
 .ipynb_checkpoints/
+__pycache__/
