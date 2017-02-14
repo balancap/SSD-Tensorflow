@@ -248,6 +248,56 @@ def tf_ssd_bboxes_decode(feat_localizations,
         return bboxes
 
 
+def tf_ssd_bboxes_select_layer(predictions_layer,
+                               localizations_layer):
+    """Extract classes, scores and bounding boxes from features in one layer.
+    Batch-compatible: inputs are supposed to have batch-type shapes.
+
+    Return:
+      classes, scores, bboxes: Input Tensors.
+    """
+    # Reshape features: Batches x N x N_labels | 4
+    p_shape = tf_shape(predictions_layer)
+    predictions_layer = tf.reshape(predictions_layer,
+                                   tf.stack([p_shape[0], -1, p_shape[-1]]))
+    l_shape = tf_shape(localizations_layer)
+    localizations_layer = tf.reshape(localizations_layer,
+                                     tf.stack([l_shape[0], -1, l_shape[-1]]))
+    # Class prediction and scores: assign 0. to 0-class
+    classes = tf.argmax(predictions_layer, axis=2)
+    scores = tf.reduce_max(predictions_layer, axis=2)
+    scores = scores * tf.cast(classes > 0, scores.dtype)
+
+    bboxes = localizations_layer
+
+    return classes, scores, bboxes
+
+
+def tf_ssd_bboxes_select(predictions_net,
+                         localizations_net):
+    """Extract classes, scores and bounding boxes from network output layers.
+
+    Return:
+      classes, scores, bboxes: Tensors.
+    """
+    l_classes = []
+    l_scores = []
+    l_bboxes = []
+    # l_layers = []
+    # l_idxes = []
+    for i in range(len(predictions_net)):
+        classes, scores, bboxes = tf_ssd_bboxes_select_layer(predictions_net[i],
+                                                             localizations_net[i])
+        l_classes.append(classes)
+        l_scores.append(scores)
+        l_bboxes.append(bboxes)
+
+    classes = tf.concat(1, l_classes)
+    scores = tf.concat(1, l_scores)
+    bboxes = tf.concat(1, l_bboxes)
+    return classes, scores, bboxes
+
+
 # =========================================================================== #
 # Additional TF bboxes methods.
 # =========================================================================== #
@@ -290,9 +340,22 @@ def tf_bboxes_sort(classes, scores, bboxes, top_k=400):
     """Sort bounding boxes by decreasing order and keep only the top_k.
     Batch-compatible.
     """
-    scores, idxes = tf.top_k(scores, k=top_k, sorted=True)
-    classes = tf.gather(classes, idxes)
-    bboxes = tf.gather(bboxes, idxes)
+    scores, idxes = tf.nn.top_k(scores, k=top_k, sorted=True)
+
+    # Trick to be able to use tf.gather: map for each element in the batch.
+    def fn_gather(classes, bboxes, idxes):
+        cl = tf.gather(classes, idxes)
+        bb = tf.gather(bboxes, idxes)
+        return [cl, bb]
+    r = tf.map_fn(lambda x: fn_gather(x[0], x[1], x[2]),
+                  [classes, bboxes, idxes],
+                  dtype=[classes.dtype, bboxes.dtype],
+                  parallel_iterations=5,
+                  back_prop=False,
+                  swap_memory=False,
+                  infer_shape=True)
+    classes = r[0]
+    bboxes = r[1]
     return classes, scores, bboxes
 
 
@@ -317,19 +380,20 @@ def tf_bboxes_nms(classes, scores, bboxes,
     l_scores = []
     l_bboxes = []
     # Apply NMS algorithm on every class.
-    for i in range(num_classes):
-        mask = classes == i
-        sub_scores = tf.boolean_mask(mask, scores)
-        sub_bboxes = tf.boolean_mask(mask, bboxes)
+    for i in range(1, num_classes):
+        mask = tf.equal(classes, i)
+        sub_scores = tf.boolean_mask(scores, mask)
+        sub_bboxes = tf.boolean_mask(bboxes, mask)
+        sub_classes = tf.boolean_mask(classes, mask)
         idxes = tf.image.non_max_suppression(sub_bboxes, sub_scores,
                                              max_output_size, threshold)
-        l_classes.append(tf.gather(classes, idxes))
-        l_scores.append(tf.gather(scores, idxes))
-        l_bboxes.append(tf.gather(bboxes, idxes))
+        l_classes.append(tf.gather(sub_classes, idxes))
+        l_scores.append(tf.gather(sub_scores, idxes))
+        l_bboxes.append(tf.gather(sub_bboxes, idxes))
     # Concat results.
-    classes = tf.concat(0, l_classes)
-    scores = tf.concat(0, l_scores)
-    bboxes = tf.concat(0, l_bboxes)
+    classes = tf.concat(0, tf.tuple(l_classes))
+    scores = tf.concat(0, tf.tuple(l_scores))
+    bboxes = tf.concat(0, tf.tuple(l_bboxes))
     # Pad outputs to initial size. Necessary if use for in batches...
     if pad:
         classes = tf_pad_axis(classes, 0, max_output_size, axis=0)
@@ -344,10 +408,9 @@ def tf_bboxes_nms_batch(classes, scores, bboxes,
     Suitable for batched inputs. In order to have the same output shape for
     all elements of the batch, we use zero-padding.
     """
-
     r = tf.map_fn(lambda x: tf_bboxes_nms(x[0], x[1], x[2],
-                                          threshold, num_classes, pad=True)
-                  [classes, scores, bboxes],
+                                          threshold, num_classes, pad=True),
+                  (classes, scores, bboxes),
                   dtype=None,
                   parallel_iterations=5,
                   back_prop=False,
