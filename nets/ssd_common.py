@@ -251,55 +251,160 @@ def tf_ssd_bboxes_decode(feat_localizations,
 # =========================================================================== #
 # Additional TF bboxes methods.
 # =========================================================================== #
-def tf_bboxes_jaccard(bbox_ref, bboxes):
-        """Compute jaccard score between a reference box and a collection
-        of bounding boxes.
+def tf_shape(x, rank=None):
+    """Returns the dimensions of an image tensor.
+    Args:
+      image: A 3-D Tensor of shape `[height, width, channels]`.
+    Returns:
+      A list of `[height, width, channels]` corresponding to the dimensions of the
+        input image.  Dimensions that are statically known are python integers,
+        otherwise they are integer scalar tensors.
+    """
+    if x.get_shape().is_fully_defined():
+        return x.get_shape().as_list()
+    else:
+        static_shape = x.get_shape()
+        if rank is None:
+            static_shape = static_shape.as_list()
+        else:
+            static_shape = x.get_shape().with_rank(rank).as_list()
+        dynamic_shape = tf.unstack(tf.shape(x), rank)
+        return [s if s is not None else d
+                for s, d in zip(static_shape, dynamic_shape)]
 
-        Args:
-          bbox_ref: Reference bounding box. 1x4 or 4 Tensor.
-          bboxes: Nx4 Tensor, collection of bounding boxes.
-        Return:
-          Nx4 Tensor with Jaccard scores.
-        """
-        # Intersection bbox and volume.
-        int_ymin = tf.maximum(bboxes[:, 0], bbox_ref[0])
-        int_xmin = tf.maximum(bboxes[:, 1], bbox_ref[1])
-        int_ymax = tf.minimum(bboxes[:, 2], bbox_ref[2])
-        int_xmax = tf.minimum(bboxes[:, 3], bbox_ref[3])
-        h = tf.maximum(int_ymax - int_ymin, 0.)
-        w = tf.maximum(int_xmax - int_xmin, 0.)
-        # Volumes.
-        inter_vol = h * w
-        union_vol = -inter_vol \
-            + (bboxes[:, 2] - bboxes[:, 0]) * (bboxes[:, 3] - bboxes[:, 1]) \
-            + (bbox_ref[2] - bbox_ref[0]) * (bbox_ref[3] - bbox_ref[1])
-        jaccard = tf.div(inter_vol, union_vol)
-        return jaccard
+
+def tf_pad_axis(x, offset, size, axis=0):
+    shape = tf_shape(x)
+    rank = len(shape)
+    pad1 = tf.stack([0]*axis + [offset] + [0]*(rank-axis-1))
+    pad2 = tf.stack([0]*axis + [size-offset-shape[axis]] + [0]*(rank-axis-1))
+    paddings = tf.stack([pad1, pad2], axis=1)
+    x = tf.pad(x, paddings, mode='CONSTANT')
+    # Reshape, to get fully defined shape if possible.
+    shape[axis] = size
+    x = tf.reshape(x, tf.stack(shape))
+    return x
+
+
+def tf_bboxes_sort(classes, scores, bboxes, top_k=400):
+    """Sort bounding boxes by decreasing order and keep only the top_k.
+    Batch-compatible.
+    """
+    scores, idxes = tf.top_k(scores, k=top_k, sorted=True)
+    classes = tf.gather(classes, idxes)
+    bboxes = tf.gather(bboxes, idxes)
+    return classes, scores, bboxes
+
+
+def tf_bboxes_clip(bbox_ref, bboxes):
+    """Clip bounding boxes to a reference box.
+    Batch-compatible.
+    """
+    bboxes = tf.maximum(bboxes, tf.stack([bbox_ref[0], bbox_ref[1],
+                                          -np.inf, -np.inf]))
+    bboxes = tf.minimum(bboxes, tf.stack([np.inf, np.inf,
+                                          bbox_ref[2], bbox_ref[3]]))
+    return bboxes
+
+
+def tf_bboxes_nms(classes, scores, bboxes,
+                  threshold=0.5, num_classes=21, pad=True):
+    """Apply non-maximum selection to bounding boxes.
+    Should only be used on single-entries. Use batch version otherwise.
+    """
+    max_output_size = tf_shape(classes)[-1]
+    l_classes = []
+    l_scores = []
+    l_bboxes = []
+    # Apply NMS algorithm on every class.
+    for i in range(num_classes):
+        mask = classes == i
+        sub_scores = tf.boolean_mask(mask, scores)
+        sub_bboxes = tf.boolean_mask(mask, bboxes)
+        idxes = tf.image.non_max_suppression(sub_bboxes, sub_scores,
+                                             max_output_size, threshold)
+        l_classes.append(tf.gather(classes, idxes))
+        l_scores.append(tf.gather(scores, idxes))
+        l_bboxes.append(tf.gather(bboxes, idxes))
+    # Concat results.
+    classes = tf.concat(0, l_classes)
+    scores = tf.concat(0, l_scores)
+    bboxes = tf.concat(0, l_bboxes)
+    # Pad outputs to initial size. Necessary if use for in batches...
+    if pad:
+        classes = tf_pad_axis(classes, 0, max_output_size, axis=0)
+        scores = tf_pad_axis(scores, 0, max_output_size, axis=0)
+        bboxes = tf_pad_axis(bboxes, 0, max_output_size, axis=0)
+    return classes, scores, bboxes
+
+
+def tf_bboxes_nms_batch(classes, scores, bboxes,
+                        threshold=0.5, num_classes=21):
+    """Apply non-maximum selection to bounding boxes.
+    Suitable for batched inputs. In order to have the same output shape for
+    all elements of the batch, we use zero-padding.
+    """
+
+    r = tf.map_fn(lambda x: tf_bboxes_nms(x[0], x[1], x[2],
+                                          threshold, num_classes, pad=True)
+                  [classes, scores, bboxes],
+                  dtype=None,
+                  parallel_iterations=5,
+                  back_prop=False,
+                  swap_memory=False,
+                  infer_shape=True)
+    return r[0], r[1], r[2]
+
+
+def tf_bboxes_jaccard(bbox_ref, bboxes):
+    """Compute jaccard score between a reference box and a collection
+    of bounding boxes.
+
+    Args:
+      bbox_ref: Reference bounding box. 1x4 or 4 Tensor.
+      bboxes: Nx4 Tensor, collection of bounding boxes.
+    Return:
+      Nx4 Tensor with Jaccard scores.
+    """
+    # Intersection bbox and volume.
+    int_ymin = tf.maximum(bboxes[:, 0], bbox_ref[0])
+    int_xmin = tf.maximum(bboxes[:, 1], bbox_ref[1])
+    int_ymax = tf.minimum(bboxes[:, 2], bbox_ref[2])
+    int_xmax = tf.minimum(bboxes[:, 3], bbox_ref[3])
+    h = tf.maximum(int_ymax - int_ymin, 0.)
+    w = tf.maximum(int_xmax - int_xmin, 0.)
+    # Volumes.
+    inter_vol = h * w
+    union_vol = -inter_vol \
+        + (bboxes[:, 2] - bboxes[:, 0]) * (bboxes[:, 3] - bboxes[:, 1]) \
+        + (bbox_ref[2] - bbox_ref[0]) * (bbox_ref[3] - bbox_ref[1])
+    jaccard = tf.div(inter_vol, union_vol)
+    return jaccard
 
 
 def tf_bboxes_intersection(bbox_ref, bboxes):
-        """Compute relative intersection between a reference box and a
-        collection of bounding boxes. Namely, compute the quotient between
-        intersection area and box area.
+    """Compute relative intersection between a reference box and a
+    collection of bounding boxes. Namely, compute the quotient between
+    intersection area and box area.
 
-        Args:
-          bbox_ref: Reference bounding box. 1x4 or 4 Tensor.
-          bboxes: Nx4 Tensor, collection of bounding boxes.
-        Return:
-          Nx4 Tensor with relative intersection.
-        """
-        # Intersection bbox and volume.
-        int_ymin = tf.maximum(bboxes[:, 0], bbox_ref[0])
-        int_xmin = tf.maximum(bboxes[:, 1], bbox_ref[1])
-        int_ymax = tf.minimum(bboxes[:, 2], bbox_ref[2])
-        int_xmax = tf.minimum(bboxes[:, 3], bbox_ref[3])
-        h = tf.maximum(int_ymax - int_ymin, 0.)
-        w = tf.maximum(int_xmax - int_xmin, 0.)
-        # Volumes.
-        inter_vol = h * w
-        bboxes_vol = (bboxes[:, 2] - bboxes[:, 0]) * (bboxes[:, 3] - bboxes[:, 1])
-        scores = tf.div(inter_vol, bboxes_vol)
-        return scores
+    Args:
+      bbox_ref: Reference bounding box. 1x4 or 4 Tensor.
+      bboxes: Nx4 Tensor, collection of bounding boxes.
+    Return:
+      Nx4 Tensor with relative intersection.
+    """
+    # Intersection bbox and volume.
+    int_ymin = tf.maximum(bboxes[:, 0], bbox_ref[0])
+    int_xmin = tf.maximum(bboxes[:, 1], bbox_ref[1])
+    int_ymax = tf.minimum(bboxes[:, 2], bbox_ref[2])
+    int_xmax = tf.minimum(bboxes[:, 3], bbox_ref[3])
+    h = tf.maximum(int_ymax - int_ymin, 0.)
+    w = tf.maximum(int_xmax - int_xmin, 0.)
+    # Volumes.
+    inter_vol = h * w
+    bboxes_vol = (bboxes[:, 2] - bboxes[:, 0]) * (bboxes[:, 3] - bboxes[:, 1])
+    scores = tf.div(inter_vol, bboxes_vol)
+    return scores
 
 
 def tf_bboxes_resize(bbox_ref, bboxes,
