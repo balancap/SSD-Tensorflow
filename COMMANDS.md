@@ -40,6 +40,26 @@ python train_ssd_network.py \
     --learning_rate_decay_factor=0.95 \
     --batch_size=32
 
+EVAL_DIR=./logs/ssd_300_vgg_1_eval
+CHECKPOINT_PATH=/media/paul/DataExt4/PascalVOC/training/ckpts/SSD_300x300_ft/ssd_300_vgg.ckpt
+python eval_ssd_network.py \
+    --eval_dir=${EVAL_DIR} \
+    --dataset_dir=${DATASET_DIR} \
+    --dataset_name=pascalvoc_2007 \
+    --dataset_split_name=test \
+    --model_name=ssd_300_vgg \
+    --checkpoint_path=${CHECKPOINT_PATH} \
+    --batch_size=32 \
+    --max_num_batches=1
+
+python eval_image_classifier.py \
+    --alsologtostderr \
+    --checkpoint_path=${CHECKPOINT_PATH} \
+    --dataset_dir=${DATASET_DIR} \
+    --dataset_name=imagenet \
+    --dataset_split_name=validation \
+    --model_name=inception_v3
+
 
 # =========================================================================== #
 # Inception v3

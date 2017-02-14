@@ -188,13 +188,13 @@ class SSDNet(object):
                scope='ssd_losses'):
         """Define the SSD network losses.
         """
-        ssd_losses(logits, localisations,
-                   gclasses, glocalisations, gscores,
-                   match_threshold=0.5,
-                   negative_ratio=3.,
-                   alpha=1.,
-                   label_smoothing=label_smoothing,
-                   scope=scope)
+        return ssd_losses(logits, localisations,
+                          gclasses, glocalisations, gscores,
+                          match_threshold=0.5,
+                          negative_ratio=3.,
+                          alpha=1.,
+                          label_smoothing=label_smoothing,
+                          scope=scope)
 
 
 # =========================================================================== #
@@ -514,7 +514,7 @@ def ssd_losses(logits, localisations,
                negative_ratio=3.,
                alpha=1.,
                label_smoothing=0.,
-               scope='ssd_losses'):
+               scope=None):
     """Loss functions for training the SSD 300 VGG network.
 
     This function defines the different loss components of the SSD, and
@@ -527,7 +527,7 @@ def ssd_losses(logits, localisations,
       glocalisations: (list of) groundtruth localisations Tensors;
       gscores: (list of) groundtruth score Tensors;
     """
-    with tf.name_scope(scope):
+    with tf.name_scope(scope, 'ssd_losses'):
         l_cross_pos = []
         l_cross_neg = []
         l_loc = []
@@ -588,9 +588,23 @@ def ssd_losses(logits, localisations,
                     loss = tf.contrib.losses.compute_weighted_loss(loss, weights)
                     l_loc.append(loss)
 
-        # Total losses in summaries...
-        with tf.name_scope('total'):
-            tf.summary.scalar('cross_entropy_pos', tf.add_n(l_cross_pos))
-            tf.summary.scalar('cross_entropy_neg', tf.add_n(l_cross_neg))
-            tf.summary.scalar('cross_entropy', tf.add_n(l_cross_pos + l_cross_neg))
-            tf.summary.scalar('localization', tf.add_n(l_loc))
+        # Additional total losses...
+        with tf.name_scope('total') as sc:
+            total_cross_pos = tf.add_n(l_cross_pos, 'cross_entropy_pos')
+            total_cross_neg = tf.add_n(l_cross_neg, 'cross_entropy_neg')
+            total_cross = tf.add(total_cross_pos, total_cross_neg, 'cross_entropy')
+            total_loc = tf.add_n(l_loc, 'localization')
+
+            # Add to EXTRA LOSSES TF.collection
+            tf.add_to_collection('EXTRA_LOSSES', total_cross_pos)
+            tf.add_to_collection('EXTRA_LOSSES', total_cross_neg)
+            tf.add_to_collection('EXTRA_LOSSES', total_cross)
+            tf.add_to_collection('EXTRA_LOSSES', total_loc)
+
+            return {}, sc
+
+            # print(sc)
+            # tf.summary.scalar('cross_entropy_pos', tf.add_n(l_cross_pos))
+            # tf.summary.scalar('cross_entropy_neg', tf.add_n(l_cross_neg))
+            # tf.summary.scalar('cross_entropy', tf.add_n(l_cross_pos + l_cross_neg))
+            # tf.summary.scalar('localization', tf.add_n(l_loc))

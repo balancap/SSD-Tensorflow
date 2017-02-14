@@ -183,12 +183,14 @@ def main(_):
         # Select the dataset.
         dataset = dataset_factory.get_dataset(
             FLAGS.dataset_name, FLAGS.dataset_split_name, FLAGS.dataset_dir)
+
         # Get the SSD network and its anchors.
         ssd_class = nets_factory.get_network(FLAGS.model_name)
         ssd_params = ssd_class.default_params._replace(num_classes=FLAGS.num_classes)
         ssd_net = ssd_class(ssd_params)
         ssd_shape = ssd_net.params.img_shape
         ssd_anchors = ssd_net.anchors(ssd_shape)
+
         # Select the preprocessing function.
         preprocessing_name = FLAGS.preprocessing_name or FLAGS.model_name
         image_preprocessing_fn = preprocessing_factory.get_preprocessing(

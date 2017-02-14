@@ -22,12 +22,16 @@ import tensorflow as tf
 from datasets import dataset_factory
 from nets import nets_factory
 from preprocessing import preprocessing_factory
+import tf_utils
 
 slim = tf.contrib.slim
+metrics = tf.contrib.metrics
 
 # =========================================================================== #
 # Evaluation flags.
 # =========================================================================== #
+tf.app.flags.DEFINE_integer(
+    'num_classes', 21, 'Number of classes to use in the dataset.')
 tf.app.flags.DEFINE_integer(
     'batch_size', 100, 'The number of samples in each batch.')
 tf.app.flags.DEFINE_integer(
@@ -78,54 +82,67 @@ def main(_):
     with tf.Graph().as_default():
         tf_global_step = slim.get_or_create_global_step()
 
-        ######################
-        # Select the dataset #
-        ######################
+        # =================================================================== #
+        # Dataset + SSD model + Pre-processing
+        # =================================================================== #
         dataset = dataset_factory.get_dataset(
             FLAGS.dataset_name, FLAGS.dataset_split_name, FLAGS.dataset_dir)
 
-        ####################
-        # Select the model #
-        ####################
-        network_fn = nets_factory.get_network_fn(
-            FLAGS.model_name,
-            num_classes=(dataset.num_classes - FLAGS.labels_offset),
-            is_training=False)
+        # Get the SSD network and its anchors.
+        ssd_class = nets_factory.get_network(FLAGS.model_name)
+        ssd_params = ssd_class.default_params._replace(num_classes=FLAGS.num_classes)
+        ssd_net = ssd_class(ssd_params)
 
-        ##############################################################
-        # Create a dataset provider that loads data from the dataset #
-        ##############################################################
-        provider = slim.dataset_data_provider.DatasetDataProvider(
-            dataset,
-            shuffle=False,
-            common_queue_capacity=2 * FLAGS.batch_size,
-            common_queue_min=FLAGS.batch_size)
-        [image, label] = provider.get(['image', 'label'])
-        label -= FLAGS.labels_offset
+        # Evaluation shape and associated anchors.
+        # eval_image_size
+        ssd_shape = ssd_net.params.img_shape
+        ssd_anchors = ssd_net.anchors(ssd_shape)
 
-        #####################################
-        # Select the preprocessing function #
-        #####################################
+        # Select the preprocessing function.
         preprocessing_name = FLAGS.preprocessing_name or FLAGS.model_name
         image_preprocessing_fn = preprocessing_factory.get_preprocessing(
-            preprocessing_name,
-            is_training=False)
+            preprocessing_name, is_training=False)
 
-        eval_image_size = FLAGS.eval_image_size or network_fn.default_image_size
+        # =================================================================== #
+        # Create a dataset provider and batches.
+        # =================================================================== #
+        with tf.name_scope(FLAGS.dataset_name + '_data_provider'):
+            provider = slim.dataset_data_provider.DatasetDataProvider(
+                dataset,
+                common_queue_capacity=2 * FLAGS.batch_size,
+                common_queue_min=FLAGS.batch_size,
+                shuffle=False)
+        # Get for SSD network: image, labels, bboxes.
+        [image, shape, glabels, gbboxes] = provider.get(['image', 'shape',
+                                                         'object/label',
+                                                         'object/bbox'])
+        # Pre-processing image, labels and bboxes.
+        image, glabels, gbboxes, _ = \
+            image_preprocessing_fn(image, glabels, gbboxes, ssd_shape)
+        # Encode groundtruth labels and bboxes.
+        gclasses, glocalisations, gscores = \
+            ssd_net.bboxes_encode(glabels, gbboxes, ssd_anchors)
+        batch_shape = [1] + [len(ssd_anchors)] * 3
 
-        image = image_preprocessing_fn(image, eval_image_size, eval_image_size)
-
-        images, labels = tf.train.batch(
-            [image, label],
+        # Evaluation batch.
+        r = tf.train.batch(
+            tf_utils.reshape_list([image, gclasses, glocalisations, gscores]),
             batch_size=FLAGS.batch_size,
             num_threads=FLAGS.num_preprocessing_threads,
             capacity=5 * FLAGS.batch_size)
+        b_image, b_gclasses, b_glocalisations, b_gscores = \
+            tf_utils.reshape_list(r, batch_shape)
 
-        ####################
-        # Define the model #
-        ####################
-        logits, _ = network_fn(images)
+        # Construct SSD network.
+        arg_scope = ssd_net.arg_scope()
+        with slim.arg_scope(arg_scope):
+            predictions, localisations, logits, end_points = \
+                ssd_net.net(b_image, is_training=False)
+        # Add loss function.
+        extra_losses, extra_sc = ssd_net.losses(logits, localisations,
+                                                b_gclasses, b_glocalisations, b_gscores)
 
+        # Variables to restore: moving avg or normal weights.
         if FLAGS.moving_average_decay:
             variable_averages = tf.train.ExponentialMovingAverage(
                 FLAGS.moving_average_decay, tf_global_step)
@@ -135,28 +152,33 @@ def main(_):
         else:
             variables_to_restore = slim.get_variables_to_restore()
 
-        predictions = tf.argmax(logits, 1)
-        labels = tf.squeeze(labels)
+        # =================================================================== #
+        # Evaluation metrics.
+        # =================================================================== #
+        dict_metrics = {}
+        # First add all losses.
+        for loss in tf.get_collection(tf.GraphKeys.LOSSES):
+            dict_metrics[loss.op.name] = metrics.streaming_mean(loss)
+        # Extra losses as well.
+        for loss in tf.get_collection('EXTRA_LOSSES'):
+            dict_metrics[loss.op.name] = metrics.streaming_mean(loss)
+            # print(loss.name)
+            # print(loss.op.name)
 
-        # Define the metrics:
-        names_to_values, names_to_updates = slim.metrics.aggregate_metric_map({
-            'Accuracy': slim.metrics.streaming_accuracy(predictions, labels),
-            'Recall@5': slim.metrics.streaming_recall_at_k(
-                    logits, labels, 5),
-        })
+        names_to_values, names_to_updates = slim.metrics.aggregate_metric_map(dict_metrics)
 
-        # Print the summaries to screen.
+        # Add metrics to summaries and Print on screen.
         for name, value in six.iteritems(names_to_values):
-            summary_name = 'eval/%s' % name
-            op = tf.scalar_summary(summary_name, value, collections=[])
+            # summary_name = 'eval/%s' % name
+            summary_name = name
+            op = tf.summary.scalar(summary_name, value, collections=[])
             op = tf.Print(op, [value], summary_name)
             tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
 
-        # TODO(sguada) use num_epochs=1
+        # Number of batches...
         if FLAGS.max_num_batches:
             num_batches = FLAGS.max_num_batches
         else:
-            # This ensures that we make a single pass over all of the data.
             num_batches = math.ceil(dataset.num_samples / float(FLAGS.batch_size))
 
         if tf.gfile.IsDirectory(FLAGS.checkpoint_path):
@@ -164,9 +186,10 @@ def main(_):
         else:
             checkpoint_path = FLAGS.checkpoint_path
 
-        # checkpoint_path='logs/model.ckpt-220025.data-00000-of-00001'
+        # =================================================================== #
+        # Evaluation loop.
+        # =================================================================== #
         tf.logging.info('Evaluating %s' % checkpoint_path)
-
         slim.evaluation.evaluate_once(
             master=FLAGS.master,
             checkpoint_path=checkpoint_path,
