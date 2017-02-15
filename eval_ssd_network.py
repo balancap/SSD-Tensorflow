@@ -18,6 +18,7 @@ import math
 import six
 
 import tensorflow as tf
+import tf_extended as tfe
 
 from datasets import dataset_factory
 from nets import nets_factory
@@ -27,7 +28,6 @@ from preprocessing import preprocessing_factory
 import tf_utils
 
 slim = tf.contrib.slim
-metrics = tf.contrib.metrics
 
 # =========================================================================== #
 # Evaluation flags.
@@ -159,13 +159,17 @@ def main(_):
 
         # Compute statistics.
         print(glabels.get_shape(), gbboxes.get_shape())
-        match_ridxes, match_rscores = \
+        n_gbboxes, tp_match, fp_match = \
             ssd_common.tf_bboxes_matching_batch(classes, scores, bboxes,
                                                 b_glabels, b_gbboxes,
                                                 matching_threshold=0.5)
 
-        tp, fp, fn = ssd_common.tf_bboxes_table_confusion_batch(
-            classes, scores, b_glabels, match_ridxes, match_rscores, score_threshold=0.5)
+        print(n_gbboxes.get_shape(), tp_match.get_shape(), fp_match.get_shape())
+
+        tfe.streaming_precision_recall_arrays(n_gbboxes, classes, scores,
+                                              tp_match, fp_match)
+        # tp, fp, fn = ssd_common.tf_bboxes_table_confusion_batch(
+        #     classes, scores, b_glabels, match_ridxes, match_rscores, score_threshold=0.5)
 
         # Variables to restore: moving avg or normal weights.
         if FLAGS.moving_average_decay:
@@ -183,10 +187,10 @@ def main(_):
         dict_metrics = {}
         # First add all losses.
         for loss in tf.get_collection(tf.GraphKeys.LOSSES):
-            dict_metrics[loss.op.name] = metrics.streaming_mean(loss)
+            dict_metrics[loss.op.name] = slim.metrics.streaming_mean(loss)
         # Extra losses as well.
         for loss in tf.get_collection('EXTRA_LOSSES'):
-            dict_metrics[loss.op.name] = metrics.streaming_mean(loss)
+            dict_metrics[loss.op.name] = slim.metrics.streaming_mean(loss)
             # print(loss.name)
             # print(loss.op.name)
 

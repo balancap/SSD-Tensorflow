@@ -394,6 +394,10 @@ def tf_bboxes_nms(classes, scores, bboxes,
     classes = tf.concat(0, tf.tuple(l_classes))
     scores = tf.concat(0, tf.tuple(l_scores))
     bboxes = tf.concat(0, tf.tuple(l_bboxes))
+    # Sort by score.
+    scores, idxes = tf.nn.top_k(scores, k=tf.size(scores), sorted=True)
+    classes = tf.gather(classes, idxes)
+    bboxes = tf.gather(bboxes, idxes)
     # Pad outputs to initial size. Necessary if use for in batches...
     if pad:
         classes = tf_pad_axis(classes, 0, max_output_size, axis=0)
@@ -419,53 +423,68 @@ def tf_bboxes_nms_batch(classes, scores, bboxes,
     return r[0], r[1], r[2]
 
 
+def _tf_select_index(idx, val, t):
+    """Return a tensor.
+    """
+    idx = tf.expand_dims(tf.expand_dims(idx, 0), 0)
+    val = tf.expand_dims(val, 0)
+    t = t + tf.scatter_nd(idx, val, tf.shape(t))
+    return t
+
+
 def tf_bboxes_matching(rclasses, rscores, rbboxes, glabels, gbboxes,
                        matching_threshold=0.5):
-    gsize = tf.size(glabels)
-    # Matching indexes and scores.
-    match_ridxes = tf.zeros_like(rclasses) - 1
-    match_rscores = tf.zeros_like(rscores)
+    rsize = tf.size(rclasses)
+    dtype = rscores.dtype
+    n_gbboxes = tf.reduce_sum(tf.cast(tf.greater(glabels, 0), dtype=dtype))
+    # Matching scores.
+    tp_match = tf.zeros_like(rscores)
+    fp_match = tf.zeros_like(rscores)
+    g_match = tf.zeros(tf.shape(glabels), dtype=dtype)
 
-    def m_condition(i, m_idxes, m_scores):
-        r = tf.less(i, gsize)
+    # Loop over returned objects.
+    def m_condition(i, tp_match, fp_match, g_match):
+        r = tf.less(i, rsize)
         return r
 
-    def m_body(i, m_idxes, m_scores):
+    def m_body(i, tp_match, fp_match, g_match):
         """Update matching scores: check same class and the score is greater.
         """
-        # Jaccard score.
-        gbbox = gbboxes[i]
-        glabel = glabels[i]
-        jaccard = tf_bboxes_jaccard(gbbox, rbboxes)
-        # Mask: check threshold + scores + no annotations + num_classes.
-        mask = tf.greater(jaccard, m_scores)
-        mask = tf.logical_and(mask, rclasses == glabel)
-        mask = tf.logical_and(mask, m_scores > matching_threshold)
-        # mask = tf.logical_and(mask, m_scores > threshold)
-        imask = tf.cast(mask, rclasses.dtype)
-        # Update scores and indexes.
-        m_idxes = imask * tf.cast(i, dtype=m_idxes.dtype) + (1 - imask) * m_idxes
-        m_scores = tf.select(mask, jaccard, m_scores)
-        return [i+1, m_idxes, m_scores]
+        # Jaccard score with groundtruth bboxes.
+        rbbox = rbboxes[i]
+        rlabel = rclasses[i]
+        jaccard = tf_bboxes_jaccard(rbbox, gbboxes)
+        jaccard = jaccard * tf.cast(glabels == rlabel, dtype=dtype)
+        # Maximum fit.
+        jcdmax = tf.reduce_max(jaccard)
+        idxmax = tf.cast(tf.argmax(jaccard, axis=0), tf.int32)
+        match = tf.cast(jcdmax > matching_threshold, dtype=dtype)
+
+        # Update TP and FP.
+        tp_match = _tf_select_index(i, match * (1.-g_match[idxmax]), tp_match)
+        fp_match = _tf_select_index(i, tf.maximum(1.-match, g_match[idxmax]), fp_match)
+        g_match = _tf_select_index(i, tf.minimum(g_match[idxmax] + match, 1), g_match)
+
+        return [i+1, tp_match, fp_match, g_match]
     # Main loop definition.
     i = 0
-    [i, match_ridxes, match_rscores] = \
-        tf.while_loop(m_condition, m_body, [i, match_ridxes, match_rscores])
-
-    return match_ridxes, match_rscores
+    [i, tp_match, fp_match, g_match] = \
+        tf.while_loop(m_condition, m_body, [i, tp_match, fp_match, g_match])
+    return n_gbboxes, tp_match, fp_match
 
 
 def tf_bboxes_matching_batch(rclasses, rscores, rbboxes, glabels, gbboxes,
                              matching_threshold=0.5):
+    dtype = rscores.dtype
     r = tf.map_fn(lambda x: tf_bboxes_matching(x[0], x[1], x[2], x[3], x[4],
                                                matching_threshold),
                   (rclasses, rscores, rbboxes, glabels, gbboxes),
-                  dtype=(rclasses.dtype, rscores.dtype),
+                  dtype=(dtype, dtype, dtype),
                   parallel_iterations=5,
                   back_prop=False,
                   swap_memory=False,
                   infer_shape=True)
-    return r[0], r[1]
+    return r[0], r[1], r[2]
 
 
 def tf_bboxes_table_confusion(rclasses, rscores, glabels,
