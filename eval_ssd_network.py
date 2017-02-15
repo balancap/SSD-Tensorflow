@@ -21,7 +21,9 @@ import tensorflow as tf
 
 from datasets import dataset_factory
 from nets import nets_factory
+from nets import ssd_common
 from preprocessing import preprocessing_factory
+
 import tf_utils
 
 slim = tf.contrib.slim
@@ -122,25 +124,48 @@ def main(_):
         # Encode groundtruth labels and bboxes.
         gclasses, glocalisations, gscores = \
             ssd_net.bboxes_encode(glabels, gbboxes, ssd_anchors)
-        batch_shape = [1] + [len(ssd_anchors)] * 3
+        batch_shape = [1] * 3 + [len(ssd_anchors)] * 3
 
         # Evaluation batch.
         r = tf.train.batch(
-            tf_utils.reshape_list([image, gclasses, glocalisations, gscores]),
+            tf_utils.reshape_list([image, glabels, gbboxes,
+                                   gclasses, glocalisations, gscores]),
             batch_size=FLAGS.batch_size,
             num_threads=FLAGS.num_preprocessing_threads,
-            capacity=5 * FLAGS.batch_size)
-        b_image, b_gclasses, b_glocalisations, b_gscores = \
+            capacity=5 * FLAGS.batch_size,
+            dynamic_pad=True)
+        b_image, b_glabels, b_gbboxes, b_gclasses, b_glocalisations, b_gscores = \
             tf_utils.reshape_list(r, batch_shape)
 
-        # Construct SSD network.
+        # =================================================================== #
+        # SSD Network + Ouputs decoding.
+        # =================================================================== #
+        dict_metrics = {}
         arg_scope = ssd_net.arg_scope()
         with slim.arg_scope(arg_scope):
             predictions, localisations, logits, end_points = \
                 ssd_net.net(b_image, is_training=False)
         # Add loss function.
-        extra_losses, extra_sc = ssd_net.losses(logits, localisations,
-                                                b_gclasses, b_glocalisations, b_gscores)
+        ssd_net.losses(logits, localisations,
+                       b_gclasses, b_glocalisations, b_gscores)
+
+        # Decoding SSD outputs.
+        classes, scores, bboxes = ssd_common.tf_ssd_bboxes_select(predictions, localisations)
+        classes, scores, bboxes = ssd_common.tf_bboxes_sort(classes, scores, bboxes,
+                                                            top_k=400)
+        classes, scores, bboxes = ssd_common.tf_bboxes_nms_batch(classes, scores, bboxes,
+                                                                 threshold=0.5, num_classes=ssd_params.num_classes)
+        print(classes.get_shape(), scores.get_shape(), bboxes.get_shape())
+
+        # Compute statistics.
+        print(glabels.get_shape(), gbboxes.get_shape())
+        match_ridxes, match_rscores = \
+            ssd_common.tf_bboxes_matching_batch(classes, scores, bboxes,
+                                                b_glabels, b_gbboxes,
+                                                matching_threshold=0.5)
+
+        tp, fp, fn = ssd_common.tf_bboxes_table_confusion_batch(
+            classes, scores, b_glabels, match_ridxes, match_rscores, score_threshold=0.5)
 
         # Variables to restore: moving avg or normal weights.
         if FLAGS.moving_average_decay:
