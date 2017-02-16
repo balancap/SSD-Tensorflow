@@ -345,15 +345,15 @@ def ssd_multibox_layer(inputs,
     # Location.
     num_loc_pred = num_anchors * 4
     loc_pred = slim.conv2d(net, num_loc_pred, [3, 3], scope='conv_loc')
-    loc_pred = tf.reshape(loc_pred, tf.concat(0, [loc_pred.get_shape()[:-1],
-                                                  [num_anchors],
-                                                  [4]]))
+    loc_pred = tf.reshape(loc_pred, tf.concat([loc_pred.get_shape()[:-1],
+                                               [num_anchors],
+                                               [4]]), axis=0)
     # Class prediction.
     num_cls_pred = num_anchors * num_classes
     cls_pred = slim.conv2d(net, num_cls_pred, [3, 3], scope='conv_cls')
-    cls_pred = tf.reshape(cls_pred, tf.concat(0, [cls_pred.get_shape()[:-1],
-                                                  [num_anchors],
-                                                  [num_classes]]))
+    cls_pred = tf.reshape(cls_pred, tf.concat([cls_pred.get_shape()[:-1],
+                                               [num_anchors],
+                                               [num_classes]], axis=0))
     return cls_pred, loc_pred
 
 

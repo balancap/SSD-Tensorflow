@@ -17,8 +17,7 @@
 import numpy as np
 import tensorflow as tf
 
-from tensorflow.contrib.framework import deprecated
-from tensorflow.contrib.framework import tensor_util
+
 from tensorflow.contrib.framework.python.ops import variables as contrib_variables
 from tensorflow.contrib.metrics.python.ops import set_ops
 from tensorflow.python.framework import dtypes
@@ -69,9 +68,9 @@ def _safe_div(numerator, denominator, name):
     Returns:
       0 if `denominator` <= 0, else `numerator` / `denominator`
     """
-    return math_ops.select(
+    return tf.where(
         math_ops.greater(denominator, 0),
-        math_ops.div(numerator, denominator),
+        math_ops.divide(numerator, denominator),
         tf.zeros_like(numerator),
         name=name)
 
@@ -151,9 +150,9 @@ def streaming_precision_recall_arrays(n_gbboxes, rclasses, rscores,
 
         # Update operations.
         nobjects_op = state_ops.assign_add(v_nobjects, tf.reduce_sum(n_gbboxes))
-        scores_op = state_ops.assign(v_scores, tf.concat(0, [v_scores, rscores]))
-        tp_op = state_ops.assign(v_tp, tf.concat(0, [v_tp, tp_tensor]))
-        fp_op = state_ops.assign(v_fp, tf.concat(0, [v_fp, fp_tensor]))
+        scores_op = state_ops.assign(v_scores, tf.concat([v_scores, rscores], axis=0))
+        tp_op = state_ops.assign(v_tp, tf.concat([v_tp, tp_tensor], axis=0))
+        fp_op = state_ops.assign(v_fp, tf.concat([v_fp, fp_tensor], axis=0))
 
         # Precision and recall computations.
         r = _precision_recall(v_nobjects, v_scores, v_tp, v_fp, 'value')

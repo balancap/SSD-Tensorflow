@@ -116,7 +116,7 @@ def tf_ssd_bboxes_encode_layer(labels,
         fmask = tf.cast(mask, dtype)
         # Update values using mask.
         feat_labels = imask * label + (1 - imask) * feat_labels
-        feat_scores = tf.select(mask, jaccard, feat_scores)
+        feat_scores = tf.where(mask, jaccard, feat_scores)
 
         feat_ymin = fmask * bbox[0] + (1 - fmask) * feat_ymin
         feat_xmin = fmask * bbox[1] + (1 - fmask) * feat_xmin
@@ -128,7 +128,7 @@ def tf_ssd_bboxes_encode_layer(labels,
         mask = tf.logical_and(interscts > ignore_threshold,
                               label == no_annotation_label)
         # Replace scores by -1.
-        feat_scores = tf.select(mask, -tf.cast(mask, dtype), feat_scores)
+        feat_scores = tf.where(mask, -tf.cast(mask, dtype), feat_scores)
 
         return [i+1, feat_labels, feat_scores,
                 feat_ymin, feat_xmin, feat_ymax, feat_xmax]
@@ -292,9 +292,9 @@ def tf_ssd_bboxes_select(predictions_net,
         l_scores.append(scores)
         l_bboxes.append(bboxes)
 
-    classes = tf.concat(1, l_classes)
-    scores = tf.concat(1, l_scores)
-    bboxes = tf.concat(1, l_bboxes)
+    classes = tf.concat(l_classes, axis=1)
+    scores = tf.concat(l_scores, axis=1)
+    bboxes = tf.concat(l_bboxes, axis=1)
     return classes, scores, bboxes
 
 
@@ -391,9 +391,9 @@ def tf_bboxes_nms(classes, scores, bboxes,
         l_scores.append(tf.gather(sub_scores, idxes))
         l_bboxes.append(tf.gather(sub_bboxes, idxes))
     # Concat results.
-    classes = tf.concat(0, tf.tuple(l_classes))
-    scores = tf.concat(0, tf.tuple(l_scores))
-    bboxes = tf.concat(0, tf.tuple(l_bboxes))
+    classes = tf.concat(tf.tuple(l_classes), axis=0)
+    scores = tf.concat(tf.tuple(l_scores), axis=0)
+    bboxes = tf.concat(tf.tuple(l_bboxes), axis=0)
     # Sort by score.
     scores, idxes = tf.nn.top_k(scores, k=tf.size(scores), sorted=True)
     classes = tf.gather(classes, idxes)

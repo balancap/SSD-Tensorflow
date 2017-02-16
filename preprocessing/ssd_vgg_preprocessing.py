@@ -309,7 +309,7 @@ def preprocess_for_eval(image, labels, bboxes, out_shape, resize,
         if bboxes is None:
             bboxes = bbox_img
         else:
-            bboxes = tf.concat(0, [bbox_img, bboxes])
+            bboxes = tf.concat([bbox_img, bboxes], axis=0)
 
         # Resize strategy...
         if resize == Resize.NONE:
