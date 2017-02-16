@@ -155,21 +155,12 @@ def main(_):
                                                             top_k=400)
         classes, scores, bboxes = ssd_common.tf_bboxes_nms_batch(classes, scores, bboxes,
                                                                  threshold=0.5, num_classes=ssd_params.num_classes)
-        print(classes.get_shape(), scores.get_shape(), bboxes.get_shape())
 
         # Compute statistics.
-        print(glabels.get_shape(), gbboxes.get_shape())
         n_gbboxes, tp_match, fp_match = \
             ssd_common.tf_bboxes_matching_batch(classes, scores, bboxes,
                                                 b_glabels, b_gbboxes,
                                                 matching_threshold=0.5)
-
-        print(n_gbboxes.get_shape(), tp_match.get_shape(), fp_match.get_shape())
-
-        tfe.streaming_precision_recall_arrays(n_gbboxes, classes, scores,
-                                              tp_match, fp_match)
-        # tp, fp, fn = ssd_common.tf_bboxes_table_confusion_batch(
-        #     classes, scores, b_glabels, match_ridxes, match_rscores, score_threshold=0.5)
 
         # Variables to restore: moving avg or normal weights.
         if FLAGS.moving_average_decay:
@@ -191,8 +182,10 @@ def main(_):
         # Extra losses as well.
         for loss in tf.get_collection('EXTRA_LOSSES'):
             dict_metrics[loss.op.name] = slim.metrics.streaming_mean(loss)
-            # print(loss.name)
-            # print(loss.op.name)
+
+        # Precision / recall metrics.
+        tfe.streaming_precision_recall_arrays(n_gbboxes, classes, scores,
+                                              tp_match, fp_match)
 
         names_to_values, names_to_updates = slim.metrics.aggregate_metric_map(dict_metrics)
 

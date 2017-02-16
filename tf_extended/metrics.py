@@ -168,6 +168,14 @@ def streaming_precision_recall_arrays(n_gbboxes, rclasses, rscores,
         return r, update_op
 
 
+def average_precision(precision, recall):
+    """Compute a average precision from precision and recall Tensors.
+    Implementation based on the Pascal 2012 devkit.
+    """
+    # Add bounds values to precision and recall.
+    pass
+
+
 def streaming_mean(values, weights=None, metrics_collections=None,
                    updates_collections=None, name=None):
     """Computes the (weighted) mean of the given values.
