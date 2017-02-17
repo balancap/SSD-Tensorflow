@@ -154,29 +154,33 @@ def main(_):
         with slim.arg_scope(arg_scope):
             predictions, localisations, logits, end_points = \
                 ssd_net.net(b_image, is_training=False)
-        # Add loss function.
+        # Add losses functions.
         ssd_net.losses(logits, localisations,
                        b_gclasses, b_glocalisations, b_gscores)
 
         # Performing post-processing on CPU: loop-intensive, usually more efficient.
         with tf.device('/cpu:0'):
             # Decoding SSD outputs.
-            classes, scores, bboxes = \
+            rclasses, rscores, rbboxes = \
                 ssd_common.tf_ssd_bboxes_select(predictions, localisations)
-            classes, scores, bboxes = \
-                ssd_common.tf_bboxes_sort(classes, scores, bboxes, top_k=400)
-            classes, scores, bboxes = \
-                ssd_common.tf_bboxes_nms_batch(classes, scores, bboxes,
+            rclasses, rscores, rbboxes = \
+                ssd_common.tf_bboxes_sort(rclasses, rscores, rbboxes, top_k=400)
+            rclasses, rscores, rbboxes = \
+                ssd_common.tf_bboxes_nms_batch(rclasses, rscores, rbboxes,
                                                nms_threshold=0.5, max_objects=50,
                                                num_classes=ssd_params.num_classes)
 
             # Compute TP and FP statistics.
             n_gbboxes, tp_match, fp_match = \
-                ssd_common.tf_bboxes_matching_batch(classes, scores, bboxes,
+                ssd_common.tf_bboxes_matching_batch(rclasses, rscores, rbboxes,
                                                     b_glabels, b_gbboxes,
                                                     matching_threshold=0.5)
 
-        # Variables to restore: moving avg or normal weights.
+            print(n_gbboxes)
+            print(tp_match)
+            print(fp_match)
+
+        # Variables to restore: moving avg. or normal weights.
         if FLAGS.moving_average_decay:
             variable_averages = tf.train.ExponentialMovingAverage(
                 FLAGS.moving_average_decay, tf_global_step)
@@ -208,7 +212,7 @@ def main(_):
 
             # Precision / recall arrays metrics.
             dict_metrics['precision_recall'] = \
-                tfe.streaming_precision_recall_arrays(n_gbboxes, classes, scores,
+                tfe.streaming_precision_recall_arrays(n_gbboxes, rclasses, rscores,
                                                       tp_match, fp_match)
         # # Add to summaries precision/recall values.
         # metric_val = dict_metrics['precision_recall'][0]

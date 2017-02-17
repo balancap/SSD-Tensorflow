@@ -50,7 +50,7 @@ python eval_ssd_network.py \
     --model_name=ssd_300_vgg \
     --checkpoint_path=${CHECKPOINT_PATH} \
     --batch_size=32 \
-    --max_num_batches=1
+    --max_num_batches=10
 
 python eval_image_classifier.py \
     --alsologtostderr \

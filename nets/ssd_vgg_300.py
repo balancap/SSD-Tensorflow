@@ -551,8 +551,8 @@ def ssd_losses(logits, localisations,
                                        gscores[i] > -0.5)
                 fnmask = tf.cast(nmask, dtype)
                 nvalues = tf.where(nmask,
-                                    predictions[:, :, :, :, 0],
-                                    1. - fnmask)
+                                   predictions[:, :, :, :, 0],
+                                   1. - fnmask)
                 nvalues_flat = tf.reshape(nvalues, [-1])
                 # Number of negative entries to select.
                 n_neg = tf.cast(negative_ratio * n_positives, tf.int32)
@@ -589,7 +589,7 @@ def ssd_losses(logits, localisations,
                     l_loc.append(loss)
 
         # Additional total losses...
-        with tf.name_scope('total') as sc:
+        with tf.name_scope('total'):
             total_cross_pos = tf.add_n(l_cross_pos, 'cross_entropy_pos')
             total_cross_neg = tf.add_n(l_cross_neg, 'cross_entropy_neg')
             total_cross = tf.add(total_cross_pos, total_cross_neg, 'cross_entropy')
@@ -600,11 +600,3 @@ def ssd_losses(logits, localisations,
             tf.add_to_collection('EXTRA_LOSSES', total_cross_neg)
             tf.add_to_collection('EXTRA_LOSSES', total_cross)
             tf.add_to_collection('EXTRA_LOSSES', total_loc)
-
-            return {}, sc
-
-            # print(sc)
-            # tf.summary.scalar('cross_entropy_pos', tf.add_n(l_cross_pos))
-            # tf.summary.scalar('cross_entropy_neg', tf.add_n(l_cross_neg))
-            # tf.summary.scalar('cross_entropy', tf.add_n(l_cross_pos + l_cross_neg))
-            # tf.summary.scalar('localization', tf.add_n(l_loc))
