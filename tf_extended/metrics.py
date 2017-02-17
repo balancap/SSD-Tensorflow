@@ -14,9 +14,7 @@
 # ==============================================================================
 """TF Extended: additional metrics.
 """
-import numpy as np
 import tensorflow as tf
-
 
 from tensorflow.contrib.framework.python.ops import variables as contrib_variables
 from tensorflow.contrib.metrics.python.ops import set_ops
@@ -32,6 +30,7 @@ from tensorflow.python.ops import state_ops
 from tensorflow.python.ops import variable_scope
 from tensorflow.python.ops import variables
 
+import tf_extended as tfe
 
 # =========================================================================== #
 # TensorFlow utils
@@ -97,9 +96,12 @@ def _broadcast_weights(weights, values):
         weights, array_ops.ones_like(values), name='broadcast_weights')
 
 
+# =========================================================================== #
+# TF Extended metrics
+# =========================================================================== #
 def _precision_recall(n_gbboxes, scores, tp, fp, scope=None):
     """Compute precision and recall from scores, true positives and false
-    positives.
+    positives booleans arrays
     """
     # Sort by score.
     with tf.name_scope(scope, 'prec_rec'):
@@ -111,19 +113,19 @@ def _precision_recall(n_gbboxes, scores, tp, fp, scope=None):
         fp = tf.cumsum(fp, axis=0)
         recall = _safe_div(tp, tf.cast(n_gbboxes, tp.dtype), 'recall')
         precision = _safe_div(tp, tp + fp, 'precision')
-        return tf.tuple([scores, precision, recall])
+        return tf.tuple([precision, recall])
 
 
-# =========================================================================== #
-# TF Extended metrics
-# =========================================================================== #
 def streaming_precision_recall_arrays(n_gbboxes, rclasses, rscores,
                                       tp_tensor, fp_tensor,
                                       remove_zero_labels=True,
                                       metrics_collections=None,
-                                      updates_collections=None, scope=None):
-
-    with variable_scope.variable_scope(scope, 'precision_recall',
+                                      updates_collections=None,
+                                      name=None):
+    """Streaming computation of precision / recall arrays. This metrics
+    keeps tracks of boolean True positives and False positives arrays.
+    """
+    with variable_scope.variable_scope(name, 'stream_precision_recall',
                                        [n_gbboxes, rclasses, tp_tensor, fp_tensor]):
         n_gbboxes = math_ops.to_int64(n_gbboxes)
         rclasses = math_ops.to_int64(rclasses)
@@ -150,14 +152,19 @@ def streaming_precision_recall_arrays(n_gbboxes, rclasses, rscores,
 
         # Update operations.
         nobjects_op = state_ops.assign_add(v_nobjects, tf.reduce_sum(n_gbboxes))
-        scores_op = state_ops.assign(v_scores, tf.concat([v_scores, rscores], axis=0))
-        tp_op = state_ops.assign(v_tp, tf.concat([v_tp, tp_tensor], axis=0))
-        fp_op = state_ops.assign(v_fp, tf.concat([v_fp, fp_tensor], axis=0))
+        scores_op = state_ops.assign(v_scores,
+                                     tf.concat([v_scores, rscores], axis=0),
+                                     validate_shape=False)
+        tp_op = state_ops.assign(v_tp, tf.concat([v_tp, tp_tensor], axis=0),
+                                 validate_shape=False)
+        fp_op = state_ops.assign(v_fp, tf.concat([v_fp, fp_tensor], axis=0),
+                                 validate_shape=False)
+        fp_op = tf.Print(fp_op, [tf.shape(fp_op)], 'test')
 
         # Precision and recall computations.
         r = _precision_recall(v_nobjects, v_scores, v_tp, v_fp, 'value')
         with ops.control_dependencies([nobjects_op, scores_op, tp_op, fp_op]):
-            update_op = _precision_recall(v_nobjects, v_scores, v_tp, v_fp,
+            update_op = _precision_recall(nobjects_op, scores_op, tp_op, fp_op,
                                           'update_op')
 
         if metrics_collections:
@@ -169,66 +176,37 @@ def streaming_precision_recall_arrays(n_gbboxes, rclasses, rscores,
 
 def average_precision(precision, recall):
     """Compute a average precision from precision and recall Tensors.
-    Implementation based on the Pascal 2012 devkit.
+    Implementation inspired by the Pascal 2012 devkit.
     """
     # Add bounds values to precision and recall.
-    pass
+    precision = tf.concat([[0.], precision, [0.]], axis=0)
+    recall = tf.concat([[0.], recall, [1.]], axis=0)
+    # Ensures precision is increasing in reverse order.
+    precision = tfe.cummax(precision, reverse=True)
+
+    # Riemann sum for estimating the integral.
+    mean_pre = (precision[1:] + precision[:-1]) / 2.
+    diff_rec = recall[1:] - recall[:-1]
+    ap = tf.reduce_sum(mean_pre * diff_rec)
+    return ap
 
 
-def streaming_mean(values, weights=None, metrics_collections=None,
-                   updates_collections=None, name=None):
-    """Computes the (weighted) mean of the given values.
-    The `streaming_mean` function creates two local variables, `total` and `count`
-    that are used to compute the average of `values`. This average is ultimately
-    returned as `mean` which is an idempotent operation that simply divides
-    `total` by `count`.
-    For estimation of the metric  over a stream of data, the function creates an
-    `update_op` operation that updates these variables and returns the `mean`.
-    `update_op` increments `total` with the reduced sum of the product of `values`
-    and `weights`, and it increments `count` with the reduced sum of `weights`.
-    If `weights` is `None`, weights default to 1. Use weights of 0 to mask values.
+def precision_recall_values(xvals, precision, recall, name=None):
+    """Compute values on the precision/recall curve.
+
     Args:
-        values: A `Tensor` of arbitrary dimensions.
-        weights: An optional `Tensor` whose shape is broadcastable to `values`.
-        metrics_collections: An optional list of collections that `mean`
-            should be added to.
-        updates_collections: An optional list of collections that `update_op`
-            should be added to.
-        name: An optional variable_scope name.
-    Returns:
-        mean: A tensor representing the current mean, the value of `total` divided
-            by `count`.
-        update_op: An operation that increments the `total` and `count` variables
-            appropriately and whose value matches `mean_value`.
-    Raises:
-        ValueError: If `weights` is not `None` and its shape doesn't match `values`,
-            or if either `metrics_collections` or `updates_collections` are not a list
-            or tuple.
+      x: Python list of floats;
+      precision: 1D Tensor decreasing.
+      recall: 1D Tensor increasing.
+    Return:
+      list of precision values.
     """
-    with variable_scope.variable_scope(name, 'mean', [values, weights]):
-        values = math_ops.to_float(values)
+    with ops.name_scope(name, "precision_recall_values",
+                        [precision, recall]) as name:
+        prec_values = []
+        dtype = precision.dtype
+        for x in xvals:
+            mask = recall <= x
+            prec_values.append(tf.reduce_min(precision * tf.cast(mask, dtype)))
+        return prec_values
 
-        total = _create_local('total', shape=[])
-        count = _create_local('count', shape=[])
-
-        if weights is not None:
-            weights = math_ops.to_float(weights)
-            values = math_ops.mul(values, weights)
-            num_values = math_ops.reduce_sum(_broadcast_weights(weights, values))
-        else:
-            num_values = math_ops.to_float(array_ops.size(values))
-
-        total_compute_op = state_ops.assign_add(total, math_ops.reduce_sum(values))
-        count_compute_op = state_ops.assign_add(count, num_values)
-
-        mean = _safe_div(total, count, 'value')
-        with ops.control_dependencies([total_compute_op, count_compute_op]):
-            update_op = _safe_div(total, count, 'update_op')
-
-        if metrics_collections:
-            ops.add_to_collections(metrics_collections, mean)
-
-        if updates_collections:
-            ops.add_to_collections(updates_collections, update_op)
-
-        return mean, update_op

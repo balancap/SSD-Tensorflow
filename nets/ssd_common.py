@@ -327,7 +327,7 @@ def tf_pad_axis(x, offset, size, axis=0):
     shape = tf_shape(x)
     rank = len(shape)
     pad1 = tf.stack([0]*axis + [offset] + [0]*(rank-axis-1))
-    pad2 = tf.stack([0]*axis + [size-offset-shape[axis]] + [0]*(rank-axis-1))
+    pad2 = tf.stack([0]*axis + [tf.maximum(size-offset-shape[axis], 0)] + [0]*(rank-axis-1))
     paddings = tf.stack([pad1, pad2], axis=1)
     x = tf.pad(x, paddings, mode='CONSTANT')
     # Reshape, to get fully defined shape if possible.
@@ -371,7 +371,8 @@ def tf_bboxes_clip(bbox_ref, bboxes):
 
 
 def tf_bboxes_nms(classes, scores, bboxes,
-                  threshold=0.5, num_classes=21, pad=True):
+                  nms_threshold=0.5, max_objects=50,
+                  num_classes=21, pad=True):
     """Apply non-maximum selection to bounding boxes.
     Should only be used on single-entries. Use batch version otherwise.
     """
@@ -386,7 +387,7 @@ def tf_bboxes_nms(classes, scores, bboxes,
         sub_bboxes = tf.boolean_mask(bboxes, mask)
         sub_classes = tf.boolean_mask(classes, mask)
         idxes = tf.image.non_max_suppression(sub_bboxes, sub_scores,
-                                             max_output_size, threshold)
+                                             max_output_size, nms_threshold)
         l_classes.append(tf.gather(sub_classes, idxes))
         l_scores.append(tf.gather(sub_scores, idxes))
         l_bboxes.append(tf.gather(sub_bboxes, idxes))
@@ -400,23 +401,25 @@ def tf_bboxes_nms(classes, scores, bboxes,
     bboxes = tf.gather(bboxes, idxes)
     # Pad outputs to initial size. Necessary if use for in batches...
     if pad:
-        classes = tf_pad_axis(classes, 0, max_output_size, axis=0)
-        scores = tf_pad_axis(scores, 0, max_output_size, axis=0)
-        bboxes = tf_pad_axis(bboxes, 0, max_output_size, axis=0)
+        classes = tf_pad_axis(classes, 0, max_objects, axis=0)
+        scores = tf_pad_axis(scores, 0, max_objects, axis=0)
+        bboxes = tf_pad_axis(bboxes, 0, max_objects, axis=0)
     return classes, scores, bboxes
 
 
 def tf_bboxes_nms_batch(classes, scores, bboxes,
-                        threshold=0.5, num_classes=21):
+                        nms_threshold=0.5, max_objects=50,
+                        num_classes=21):
     """Apply non-maximum selection to bounding boxes.
     Suitable for batched inputs. In order to have the same output shape for
     all elements of the batch, we use zero-padding.
     """
     r = tf.map_fn(lambda x: tf_bboxes_nms(x[0], x[1], x[2],
-                                          threshold, num_classes, pad=True),
+                                          nms_threshold, max_objects,
+                                          num_classes, pad=True),
                   (classes, scores, bboxes),
                   dtype=None,
-                  parallel_iterations=5,
+                  parallel_iterations=10,
                   back_prop=False,
                   swap_memory=False,
                   infer_shape=True)
@@ -435,116 +438,68 @@ def _tf_select_index(idx, val, t):
 def tf_bboxes_matching(rclasses, rscores, rbboxes, glabels, gbboxes,
                        matching_threshold=0.5):
     rsize = tf.size(rclasses)
-    dtype = rscores.dtype
-    n_gbboxes = tf.reduce_sum(tf.cast(tf.greater(glabels, 0), dtype=dtype))
-    # Matching scores.
-    tp_match = tf.zeros_like(rscores)
-    fp_match = tf.zeros_like(rscores)
-    g_match = tf.zeros(tf.shape(glabels), dtype=dtype)
+    # Number of groundtruth boxes.
+    n_gbboxes = tf.count_nonzero(glabels)
+    # Grountruth matching arrays.
+    gmatch = tf.zeros(tf.shape(glabels), dtype=tf.bool)
+    grange = tf.range(tf.size(glabels), dtype=tf.int32)
+
+    # Matching TensorArrays.
+    ta_tp_bool = tf.TensorArray(tf.bool, size=rsize,
+                                dynamic_size=False, infer_shape=True)
+    ta_fp_bool = tf.TensorArray(tf.bool, size=rsize,
+                                dynamic_size=False, infer_shape=True)
 
     # Loop over returned objects.
-    def m_condition(i, tp_match, fp_match, g_match):
+    def m_condition(i, ta_tp, ta_fp, gmatch):
         r = tf.less(i, rsize)
         return r
 
-    def m_body(i, tp_match, fp_match, g_match):
+    def m_body(i, ta_tp, ta_fp, gmatch):
         """Update matching scores: check same class and the score is greater.
         """
         # Jaccard score with groundtruth bboxes.
         rbbox = rbboxes[i]
         rlabel = rclasses[i]
         jaccard = tf_bboxes_jaccard(rbbox, gbboxes)
-        jaccard = jaccard * tf.cast(glabels == rlabel, dtype=dtype)
-        # Maximum fit.
-        jcdmax = tf.reduce_max(jaccard)
+        # jaccard = jaccard * tf.cast(glabels == rlabel, dtype=jaccard.dtype)
+
+        # Best fit, checking it's above threshold.
         idxmax = tf.cast(tf.argmax(jaccard, axis=0), tf.int32)
-        match = tf.cast(jcdmax > matching_threshold, dtype=dtype)
+        jcdmax = jaccard[idxmax]
+        match = jcdmax > matching_threshold
+        existing_match = gmatch[idxmax]
+        # TP: match & no previous match and FP: previous match | no match.
+        ta_tp = ta_tp.write(i, tf.logical_and(match, tf.logical_not(existing_match)))
+        ta_fp = ta_fp.write(i, tf.logical_or(existing_match, tf.logical_not(match)))
+        # Update grountruth match.
+        mask = tf.logical_and(tf.equal(grange, idxmax), match)
+        gmatch = tf.logical_or(gmatch, mask)
 
-        # Update TP and FP.
-        tp_match = _tf_select_index(i, match * (1.-g_match[idxmax]), tp_match)
-        fp_match = _tf_select_index(i, tf.maximum(1.-match, g_match[idxmax]), fp_match)
-        g_match = _tf_select_index(i, tf.minimum(g_match[idxmax] + match, 1), g_match)
-
-        return [i+1, tp_match, fp_match, g_match]
+        return [i+1, ta_tp, ta_fp, gmatch]
     # Main loop definition.
     i = 0
-    [i, tp_match, fp_match, g_match] = \
-        tf.while_loop(m_condition, m_body, [i, tp_match, fp_match, g_match])
+    [i, ta_tp_bool, ta_fp_bool, gmatch] = \
+        tf.while_loop(m_condition, m_body,
+                      [i, ta_tp_bool, ta_fp_bool, gmatch],
+                      back_prop=False)
+    # TensorArrays to Tensors.
+    tp_match = ta_fp_bool.stack()
+    fp_match = ta_tp_bool.stack()
     return n_gbboxes, tp_match, fp_match
 
 
 def tf_bboxes_matching_batch(rclasses, rscores, rbboxes, glabels, gbboxes,
                              matching_threshold=0.5):
-    dtype = rscores.dtype
     r = tf.map_fn(lambda x: tf_bboxes_matching(x[0], x[1], x[2], x[3], x[4],
                                                matching_threshold),
                   (rclasses, rscores, rbboxes, glabels, gbboxes),
-                  dtype=(dtype, dtype, dtype),
-                  parallel_iterations=5,
+                  dtype=(tf.int64, tf.bool, tf.bool),
+                  parallel_iterations=10,
                   back_prop=False,
-                  swap_memory=False,
+                  swap_memory=True,
                   infer_shape=True)
     return r[0], r[1], r[2]
-
-
-def tf_bboxes_table_confusion(rclasses, rscores, glabels,
-                              match_ridxes, match_rscores,
-                              score_threshold=0.5):
-    """Compute the precision of the matching, i.e.:
-    true_positives / (true_positives + false_positives).
-    """
-    # Filter out using score threshold. Also removes pad values.
-    mask = tf.greater_equal(rscores, score_threshold)
-    match_ridxes = tf.boolean_mask(match_ridxes, mask)
-    # match_rscores = tf.boolean_mask(match_rscores, mask)
-
-    y, idx, count = tf.unique_with_counts(match_ridxes)
-    # Remove non-match (-1)
-    mask = tf.greater_equal(y, 0)
-    y = tf.boolean_mask(y, mask)
-    count = tf.boolean_mask(count, mask)
-
-    # True positives: number of matches.
-    tp = tf.size(y)
-    # False positives: number of additional matches.
-    fp = tf.reduce_sum(count - 1)
-    # False negatives: number of groundtruth left over.
-    n_bboxes = tf.reduce_sum(tf.cast(tf.greater(glabels, 0), dtype=glabels.dtype))
-    fn = n_bboxes - tf.size(y, out_type=n_bboxes.dtype)
-    return tp, fp, fn
-
-
-def tf_bboxes_table_confusion_batch(rclasses, rscores, glabels,
-                                    match_ridxes, match_rscores,
-                                    score_threshold=0.5):
-    r = tf.map_fn(lambda x: tf_bboxes_table_confusion(x[0], x[1], x[2], x[3], x[4],
-                                                      score_threshold),
-                  (rclasses, rscores, glabels, match_ridxes, match_rscores),
-                  dtype=(tf.int64, tf.int64, tf.int64),
-                  parallel_iterations=5,
-                  back_prop=False,
-                  swap_memory=False,
-                  infer_shape=True)
-    return r[0], r[1], r[1]
-
-
-# def tf_bboxes_table_confusion(rclasses, rscores, rbboxes, gclasses, gbboxes,
-#                               match_idxes, match_scores, score_threshold=0.5):
-#     """Compute the precision of the matching, i.e.:
-#     true_positives / (true_positives + false_positives).
-#     """
-#     y, idx, count = tf.unique_with_counts(match_idxes)
-#     mask = tf.greater_equal(y, 0)
-#     y = tf.boolean_mask(y, mask)
-#     count = tf.boolean_mask(count, mask)
-#     # True positives.
-#     tp = tf.size(y)
-#     # False positives.
-#     fp = tf.reduce_sum(count - 1)
-#     # False negatives.
-#     fn = tf.size(gclasses) - tf.size(y)
-#     return tp, fp
-
 
 
 def tf_bboxes_jaccard(bbox_ref, bboxes):
@@ -557,19 +512,21 @@ def tf_bboxes_jaccard(bbox_ref, bboxes):
     Return:
       Nx4 Tensor with Jaccard scores.
     """
+    # Should be more efficient to first transpose.
+    bboxes = tf.transpose(bboxes)
     # Intersection bbox and volume.
-    int_ymin = tf.maximum(bboxes[:, 0], bbox_ref[0])
-    int_xmin = tf.maximum(bboxes[:, 1], bbox_ref[1])
-    int_ymax = tf.minimum(bboxes[:, 2], bbox_ref[2])
-    int_xmax = tf.minimum(bboxes[:, 3], bbox_ref[3])
+    int_ymin = tf.maximum(bboxes[0], bbox_ref[0])
+    int_xmin = tf.maximum(bboxes[1], bbox_ref[1])
+    int_ymax = tf.minimum(bboxes[2], bbox_ref[2])
+    int_xmax = tf.minimum(bboxes[3], bbox_ref[3])
     h = tf.maximum(int_ymax - int_ymin, 0.)
     w = tf.maximum(int_xmax - int_xmin, 0.)
     # Volumes.
     inter_vol = h * w
     union_vol = -inter_vol \
-        + (bboxes[:, 2] - bboxes[:, 0]) * (bboxes[:, 3] - bboxes[:, 1]) \
+        + (bboxes[2] - bboxes[0]) * (bboxes[3] - bboxes[1]) \
         + (bbox_ref[2] - bbox_ref[0]) * (bbox_ref[3] - bbox_ref[1])
-    jaccard = tf.div(inter_vol, union_vol)
+    jaccard = tf.divide(inter_vol, union_vol)
     return jaccard
 
 
@@ -584,16 +541,18 @@ def tf_bboxes_intersection(bbox_ref, bboxes):
     Return:
       Nx4 Tensor with relative intersection.
     """
+    # Should be more efficient to first transpose.
+    bboxes = tf.transpose(bboxes)
     # Intersection bbox and volume.
-    int_ymin = tf.maximum(bboxes[:, 0], bbox_ref[0])
-    int_xmin = tf.maximum(bboxes[:, 1], bbox_ref[1])
-    int_ymax = tf.minimum(bboxes[:, 2], bbox_ref[2])
-    int_xmax = tf.minimum(bboxes[:, 3], bbox_ref[3])
+    int_ymin = tf.maximum(bboxes[0], bbox_ref[0])
+    int_xmin = tf.maximum(bboxes[1], bbox_ref[1])
+    int_ymax = tf.minimum(bboxes[2], bbox_ref[2])
+    int_xmax = tf.minimum(bboxes[3], bbox_ref[3])
     h = tf.maximum(int_ymax - int_ymin, 0.)
     w = tf.maximum(int_xmax - int_xmin, 0.)
     # Volumes.
     inter_vol = h * w
-    bboxes_vol = (bboxes[:, 2] - bboxes[:, 0]) * (bboxes[:, 3] - bboxes[:, 1])
+    bboxes_vol = (bboxes[2] - bboxes[0]) * (bboxes[3] - bboxes[1])
     scores = tf.div(inter_vol, bboxes_vol)
     return scores
 

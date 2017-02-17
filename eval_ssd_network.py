@@ -16,6 +16,7 @@
 on a given dataset."""
 import math
 import six
+import time
 
 import tensorflow as tf
 import tf_extended as tfe
@@ -28,6 +29,13 @@ from preprocessing import preprocessing_factory
 import tf_utils
 
 slim = tf.contrib.slim
+
+# =========================================================================== #
+# Some default EVAL parameters
+# =========================================================================== #
+# List of recalls values at which precision is evaluated.
+LIST_RECALLS = [0.4, 0.5, 0.6, 0.7, 0.8, 0.85, 0.87, 0.88, 0.89,
+                0.90, 0.91, 0.92, 0.93, 0.94, 0.95, 0.96, 0.97, 0.98, 0.99]
 
 # =========================================================================== #
 # Evaluation flags.
@@ -108,34 +116,35 @@ def main(_):
         # =================================================================== #
         # Create a dataset provider and batches.
         # =================================================================== #
-        with tf.name_scope(FLAGS.dataset_name + '_data_provider'):
-            provider = slim.dataset_data_provider.DatasetDataProvider(
-                dataset,
-                common_queue_capacity=2 * FLAGS.batch_size,
-                common_queue_min=FLAGS.batch_size,
-                shuffle=False)
-        # Get for SSD network: image, labels, bboxes.
-        [image, shape, glabels, gbboxes] = provider.get(['image', 'shape',
-                                                         'object/label',
-                                                         'object/bbox'])
-        # Pre-processing image, labels and bboxes.
-        image, glabels, gbboxes, _ = \
-            image_preprocessing_fn(image, glabels, gbboxes, ssd_shape)
-        # Encode groundtruth labels and bboxes.
-        gclasses, glocalisations, gscores = \
-            ssd_net.bboxes_encode(glabels, gbboxes, ssd_anchors)
-        batch_shape = [1] * 3 + [len(ssd_anchors)] * 3
+        with tf.device('/cpu:0'):
+            with tf.name_scope(FLAGS.dataset_name + '_data_provider'):
+                provider = slim.dataset_data_provider.DatasetDataProvider(
+                    dataset,
+                    common_queue_capacity=2 * FLAGS.batch_size,
+                    common_queue_min=FLAGS.batch_size,
+                    shuffle=False)
+            # Get for SSD network: image, labels, bboxes.
+            [image, shape, glabels, gbboxes] = provider.get(['image', 'shape',
+                                                             'object/label',
+                                                             'object/bbox'])
+            # Pre-processing image, labels and bboxes.
+            image, glabels, gbboxes, _ = \
+                image_preprocessing_fn(image, glabels, gbboxes, ssd_shape)
+            # Encode groundtruth labels and bboxes.
+            gclasses, glocalisations, gscores = \
+                ssd_net.bboxes_encode(glabels, gbboxes, ssd_anchors)
+            batch_shape = [1] * 3 + [len(ssd_anchors)] * 3
 
-        # Evaluation batch.
-        r = tf.train.batch(
-            tf_utils.reshape_list([image, glabels, gbboxes,
-                                   gclasses, glocalisations, gscores]),
-            batch_size=FLAGS.batch_size,
-            num_threads=FLAGS.num_preprocessing_threads,
-            capacity=5 * FLAGS.batch_size,
-            dynamic_pad=True)
-        b_image, b_glabels, b_gbboxes, b_gclasses, b_glocalisations, b_gscores = \
-            tf_utils.reshape_list(r, batch_shape)
+            # Evaluation batch.
+            r = tf.train.batch(
+                tf_utils.reshape_list([image, glabels, gbboxes,
+                                       gclasses, glocalisations, gscores]),
+                batch_size=FLAGS.batch_size,
+                num_threads=FLAGS.num_preprocessing_threads,
+                capacity=5 * FLAGS.batch_size,
+                dynamic_pad=True)
+            b_image, b_glabels, b_gbboxes, b_gclasses, b_glocalisations, b_gscores = \
+                tf_utils.reshape_list(r, batch_shape)
 
         # =================================================================== #
         # SSD Network + Ouputs decoding.
@@ -149,18 +158,23 @@ def main(_):
         ssd_net.losses(logits, localisations,
                        b_gclasses, b_glocalisations, b_gscores)
 
-        # Decoding SSD outputs.
-        classes, scores, bboxes = ssd_common.tf_ssd_bboxes_select(predictions, localisations)
-        classes, scores, bboxes = ssd_common.tf_bboxes_sort(classes, scores, bboxes,
-                                                            top_k=400)
-        classes, scores, bboxes = ssd_common.tf_bboxes_nms_batch(classes, scores, bboxes,
-                                                                 threshold=0.5, num_classes=ssd_params.num_classes)
+        # Performing post-processing on CPU: loop-intensive, usually more efficient.
+        with tf.device('/cpu:0'):
+            # Decoding SSD outputs.
+            classes, scores, bboxes = \
+                ssd_common.tf_ssd_bboxes_select(predictions, localisations)
+            classes, scores, bboxes = \
+                ssd_common.tf_bboxes_sort(classes, scores, bboxes, top_k=400)
+            classes, scores, bboxes = \
+                ssd_common.tf_bboxes_nms_batch(classes, scores, bboxes,
+                                               nms_threshold=0.5, max_objects=50,
+                                               num_classes=ssd_params.num_classes)
 
-        # Compute statistics.
-        n_gbboxes, tp_match, fp_match = \
-            ssd_common.tf_bboxes_matching_batch(classes, scores, bboxes,
-                                                b_glabels, b_gbboxes,
-                                                matching_threshold=0.5)
+            # Compute TP and FP statistics.
+            n_gbboxes, tp_match, fp_match = \
+                ssd_common.tf_bboxes_matching_batch(classes, scores, bboxes,
+                                                    b_glabels, b_gbboxes,
+                                                    matching_threshold=0.5)
 
         # Variables to restore: moving avg or normal weights.
         if FLAGS.moving_average_decay:
@@ -175,28 +189,54 @@ def main(_):
         # =================================================================== #
         # Evaluation metrics.
         # =================================================================== #
-        dict_metrics = {}
-        # First add all losses.
-        for loss in tf.get_collection(tf.GraphKeys.LOSSES):
-            dict_metrics[loss.op.name] = slim.metrics.streaming_mean(loss)
-        # Extra losses as well.
-        for loss in tf.get_collection('EXTRA_LOSSES'):
-            dict_metrics[loss.op.name] = slim.metrics.streaming_mean(loss)
+        with tf.device('/cpu:0'):
+            dict_metrics = {}
+            # First add all losses.
+            for loss in tf.get_collection(tf.GraphKeys.LOSSES):
+                dict_metrics[loss.op.name] = slim.metrics.streaming_mean(loss)
+            # Extra losses as well.
+            for loss in tf.get_collection('EXTRA_LOSSES'):
+                dict_metrics[loss.op.name] = slim.metrics.streaming_mean(loss)
 
-        # Precision / recall metrics.
-        tfe.streaming_precision_recall_arrays(n_gbboxes, classes, scores,
-                                              tp_match, fp_match)
+            # Add metrics to summaries and Print on screen.
+            for name, metric in dict_metrics.items():
+                # summary_name = 'eval/%s' % name
+                summary_name = name
+                op = tf.summary.scalar(summary_name, metric[0], collections=[])
+                op = tf.Print(op, [metric[0]], summary_name)
+                tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
 
+            # Precision / recall arrays metrics.
+            dict_metrics['precision_recall'] = \
+                tfe.streaming_precision_recall_arrays(n_gbboxes, classes, scores,
+                                                      tp_match, fp_match)
+        # # Add to summaries precision/recall values.
+        # metric_val = dict_metrics['precision_recall'][0]
+        # l_precisions = tfe.precision_recall_values(LIST_RECALLS,
+        #                                            metric_val[0],
+        #                                            metric_val[1])
+        # for i, v in enumerate(l_precisions):
+        #     summary_name = 'eval/precision_at_recall_%.2f' % LIST_RECALLS[i]
+        #     op = tf.summary.scalar(summary_name, v, collections=[])
+        #     op = tf.Print(op, [v], summary_name)
+        #     tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
+        # # Compute Average Precision as well.
+        # ap = tfe.average_precision(metric_val[0], metric_val[1])
+        # summary_name = 'eval/average_precision'
+        # op = tf.summary.scalar(summary_name, ap, collections=[])
+        # op = tf.Print(op, [ap], summary_name)
+        # tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
+
+
+        # Split into values and updates ops.
         names_to_values, names_to_updates = slim.metrics.aggregate_metric_map(dict_metrics)
 
-        # Add metrics to summaries and Print on screen.
-        for name, value in six.iteritems(names_to_values):
-            # summary_name = 'eval/%s' % name
-            summary_name = name
-            op = tf.summary.scalar(summary_name, value, collections=[])
-            op = tf.Print(op, [value], summary_name)
-            tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
-
+        # =================================================================== #
+        # Evaluation loop.
+        # =================================================================== #
+        gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=1.)
+        config = tf.ConfigProto(log_device_placement=False,
+                                gpu_options=gpu_options)
         # Number of batches...
         if FLAGS.max_num_batches:
             num_batches = FLAGS.max_num_batches
@@ -208,9 +248,7 @@ def main(_):
         else:
             checkpoint_path = FLAGS.checkpoint_path
 
-        # =================================================================== #
-        # Evaluation loop.
-        # =================================================================== #
+        start = time.clock()
         tf.logging.info('Evaluating %s' % checkpoint_path)
         slim.evaluation.evaluate_once(
             master=FLAGS.master,
@@ -218,7 +256,12 @@ def main(_):
             logdir=FLAGS.eval_dir,
             num_evals=num_batches,
             eval_op=list(names_to_updates.values()),
-            variables_to_restore=variables_to_restore)
+            variables_to_restore=variables_to_restore,
+            session_config=config)
+        # Log time spent.
+        elapsed = time.clock()
+        elapsed = elapsed - start
+        print('Time spent per BATCH: %.3f seconds.' % (elapsed / num_batches))
 
 
 if __name__ == '__main__':
