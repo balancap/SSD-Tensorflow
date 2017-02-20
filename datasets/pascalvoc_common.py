@@ -84,6 +84,8 @@ def get_split(split_name, dataset_dir, file_pattern, reader,
         'image/object/bbox/xmax': tf.VarLenFeature(dtype=tf.float32),
         'image/object/bbox/ymax': tf.VarLenFeature(dtype=tf.float32),
         'image/object/bbox/label': tf.VarLenFeature(dtype=tf.int64),
+        'image/object/bbox/difficult': tf.VarLenFeature(dtype=tf.int64),
+        'image/object/bbox/truncated': tf.VarLenFeature(dtype=tf.int64),
     }
     items_to_handlers = {
         'image': slim.tfexample_decoder.Image('image/encoded', 'image/format'),
@@ -91,6 +93,8 @@ def get_split(split_name, dataset_dir, file_pattern, reader,
         'object/bbox': slim.tfexample_decoder.BoundingBox(
                 ['xmin', 'ymin', 'xmax', 'ymax'], 'image/object/bbox/'),
         'object/label': slim.tfexample_decoder.Tensor('image/object/bbox/label'),
+        'object/difficult': slim.tfexample_decoder.Tensor('image/object/bbox/difficult'),
+        'object/truncated': slim.tfexample_decoder.Tensor('image/object/bbox/truncated'),
     }
     decoder = slim.tfexample_decoder.TFExampleDecoder(
         keys_to_features, items_to_handlers)

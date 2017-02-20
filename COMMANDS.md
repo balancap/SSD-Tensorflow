@@ -4,12 +4,12 @@
 rm events* graph* model* checkpoint
 mv events* graph* model* checkpoint ./log
 
-DATASET_DIR=/media/paul/DataExt4/PascalVOC/rawdata/VOC2007/test/
+DATASET_DIR=/media/paul/DataExt4/PascalVOC/rawdata/VOC2012/trainval/
 OUTPUT_DIR=/media/paul/DataExt4/PascalVOC/dataset
 python tf_convert_data.py \
     --dataset_name=pascalvoc \
     --dataset_dir=${DATASET_DIR} \
-    --output_name=voc_2007_test \
+    --output_name=voc_2012_train \
     --output_dir=${OUTPUT_DIR}
 
 CAFFE_MODEL=/media/paul/DataExt4/PascalVOC/training/ckpts/SSD_512x512_ft/ssd_512_vgg.caffemodel

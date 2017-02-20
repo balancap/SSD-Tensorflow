@@ -20,13 +20,11 @@ import time
 
 import tensorflow as tf
 import tf_extended as tfe
+import tf_utils
 
 from datasets import dataset_factory
 from nets import nets_factory
-from nets import ssd_common
 from preprocessing import preprocessing_factory
-
-import tf_utils
 
 slim = tf.contrib.slim
 
@@ -34,16 +32,34 @@ slim = tf.contrib.slim
 # Some default EVAL parameters
 # =========================================================================== #
 # List of recalls values at which precision is evaluated.
-LIST_RECALLS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.85, 0.87, 0.88, 0.89,
-                0.90, 0.91, 0.92, 0.93, 0.94, 0.95, 0.96, 0.97, 0.98, 0.99]
+LIST_RECALLS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.85,
+                0.90, 0.95, 0.96, 0.97, 0.98, 0.99]
 
 # =========================================================================== #
-# Evaluation flags.
+# SSD evaluation Flags.
+# =========================================================================== #
+tf.app.flags.DEFINE_integer(
+    'select_threshold', 0.01, 'Selection threshold.')
+tf.app.flags.DEFINE_integer(
+    'select_top_k', 400, 'Select top-k detected objects.')
+tf.app.flags.DEFINE_integer(
+    'nms_threshold', 0.35, 'Non-Maximum Selection threshold.')
+tf.app.flags.DEFINE_integer(
+    'matching_threshold', 0.5, 'Matching threshold with groundtruth objects.')
+tf.app.flags.DEFINE_integer(
+    'eval_resize', 3, 'Image resizing: None/CENTRAL_CROP/PAD_AND_RESIZE/WARP_RESIZE.')
+tf.app.flags.DEFINE_integer(
+    'eval_image_size', None, 'Eval image size.')
+tf.app.flags.DEFINE_integer(
+    'remove_difficult', True, 'Remove difficult objects from evaluation.')
+
+# =========================================================================== #
+# Main evaluation flags.
 # =========================================================================== #
 tf.app.flags.DEFINE_integer(
     'num_classes', 21, 'Number of classes to use in the dataset.')
 tf.app.flags.DEFINE_integer(
-    'batch_size', 100, 'The number of samples in each batch.')
+    'batch_size', 32, 'The number of samples in each batch.')
 tf.app.flags.DEFINE_integer(
     'max_num_batches', None,
     'Max number of batches to evaluate by default use all.')
@@ -64,11 +80,6 @@ tf.app.flags.DEFINE_string(
     'dataset_split_name', 'test', 'The name of the train/test split.')
 tf.app.flags.DEFINE_string(
     'dataset_dir', None, 'The directory where the dataset files are stored.')
-tf.app.flags.DEFINE_integer(
-    'labels_offset', 0,
-    'An offset for the labels in the dataset. This flag is primarily used to '
-    'evaluate the VGG and ResNet architectures which do not use a background '
-    'class for the ImageNet dataset.')
 tf.app.flags.DEFINE_string(
     'model_name', 'inception_v3', 'The name of the architecture to evaluate.')
 tf.app.flags.DEFINE_string(
@@ -78,8 +89,6 @@ tf.app.flags.DEFINE_float(
     'moving_average_decay', None,
     'The decay to use for the moving average.'
     'If left as None, then moving averages are not used.')
-tf.app.flags.DEFINE_integer(
-    'eval_image_size', None, 'Eval image size')
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -113,6 +122,8 @@ def main(_):
         image_preprocessing_fn = preprocessing_factory.get_preprocessing(
             preprocessing_name, is_training=False)
 
+        tf_utils.print_configuration(FLAGS.__flags, ssd_params,
+                                     dataset.data_sources, FLAGS.eval_dir)
         # =================================================================== #
         # Create a dataset provider and batches.
         # =================================================================== #
@@ -127,9 +138,17 @@ def main(_):
             [image, shape, glabels, gbboxes] = provider.get(['image', 'shape',
                                                              'object/label',
                                                              'object/bbox'])
+            if FLAGS.remove_difficult:
+                [gdifficult] = provider.get(['object/difficult'])
+            else:
+                gdifficult = None
+
             # Pre-processing image, labels and bboxes.
             image, glabels, gbboxes, gbbox_img = \
-                image_preprocessing_fn(image, glabels, gbboxes, ssd_shape)
+                image_preprocessing_fn(image, glabels, gbboxes,
+                                       out_shape=ssd_shape,
+                                       resize=FLAGS.eval_resize,
+                                       difficults=gdifficult)
             # Encode groundtruth labels and bboxes.
             gclasses, glocalisations, gscores = \
                 ssd_net.bboxes_encode(glabels, gbboxes, ssd_anchors)
@@ -164,16 +183,16 @@ def main(_):
             localisations = ssd_net.bboxes_decode(localisations, ssd_anchors)
             rclasses, rscores, rbboxes = \
                 ssd_net.detected_bboxes(predictions, localisations,
-                                        select_threshold=None,
-                                        nms_threshold=0.4,
+                                        select_threshold=FLAGS.select_threshold,
+                                        nms_threshold=FLAGS.nms_threshold,
                                         clipping_bbox=b_gbbox_img,
-                                        top_k=400)
+                                        top_k=FLAGS.select_top_k)
 
             # Compute TP and FP statistics.
             n_gbboxes, tp_tensor, fp_tensor = \
                 tfe.bboxes_matching_batch(rclasses, rscores, rbboxes,
                                           b_glabels, b_gbboxes,
-                                          matching_threshold=0.5)
+                                          matching_threshold=FLAGS.matching_threshold)
 
         # Variables to restore: moving avg. or normal weights.
         if FLAGS.moving_average_decay:

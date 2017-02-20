@@ -63,7 +63,7 @@ def print_configuration(flags, ssd_params, data_sources, save_dir=None):
     """
     def print_config(stream=None):
         print('\n# =========================================================================== #', file=stream)
-        print('# Training flags:', file=stream)
+        print('# Training | Evaluation flags:', file=stream)
         print('# =========================================================================== #', file=stream)
         pprint(flags, stream=stream)
 
@@ -73,7 +73,7 @@ def print_configuration(flags, ssd_params, data_sources, save_dir=None):
         pprint(dict(ssd_params._asdict()), stream=stream)
 
         print('\n# =========================================================================== #', file=stream)
-        print('# Training dataset files:', file=stream)
+        print('# Training | Evaluation dataset files:', file=stream)
         print('# =========================================================================== #', file=stream)
         data_files = parallel_reader.get_data_files(data_sources)
         pprint(data_files, stream=stream)

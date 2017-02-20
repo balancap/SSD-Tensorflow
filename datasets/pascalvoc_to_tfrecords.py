@@ -91,10 +91,21 @@ def _process_image(directory, name):
     bboxes = []
     labels = []
     labels_text = []
+    difficult = []
+    truncated = []
     for obj in root.findall('object'):
         label = obj.find('name').text
         labels.append(int(VOC_LABELS[label][0]))
         labels_text.append(label.encode('ascii'))
+
+        if obj.find('difficult'):
+            difficult.append(int(obj.find('difficult').text))
+        else:
+            difficult.append(0)
+        if obj.find('truncated'):
+            truncated.append(int(obj.find('truncated').text))
+        else:
+            truncated.append(0)
 
         bbox = obj.find('bndbox')
         bboxes.append((float(bbox.find('ymin').text) / shape[0],
@@ -102,15 +113,11 @@ def _process_image(directory, name):
                        float(bbox.find('ymax').text) / shape[0],
                        float(bbox.find('xmax').text) / shape[1]
                        ))
-    # Some ugly debugging!
-    # print(name, shape)
-    # print(name, bboxes)
-    # print(name, labels)
-    # print(name, labels_text)
-    return image_data, shape, bboxes, labels, labels_text
+    return image_data, shape, bboxes, labels, labels_text, difficult, truncated
 
 
-def _convert_to_example(image_data, labels, labels_text, bboxes, shape):
+def _convert_to_example(image_data, labels, labels_text, bboxes, shape,
+                        difficult, truncated):
     """Build an Example proto for an image example.
 
     Args:
@@ -146,6 +153,8 @@ def _convert_to_example(image_data, labels, labels_text, bboxes, shape):
             'image/object/bbox/ymax': float_feature(ymax),
             'image/object/bbox/label': int64_feature(labels),
             'image/object/bbox/label_text': bytes_feature(labels_text),
+            'image/object/bbox/difficult': int64_feature(difficult),
+            'image/object/bbox/truncated': int64_feature(truncated),
             'image/format': bytes_feature(image_format),
             'image/encoded': bytes_feature(image_data)}))
     return example
@@ -159,8 +168,10 @@ def _add_to_tfrecord(dataset_dir, name, tfrecord_writer):
       name: Image name to add to the TFRecord;
       tfrecord_writer: The TFRecord writer to use for writing.
     """
-    image_data, shape, bboxes, labels, labels_text = _process_image(dataset_dir, name)
-    example = _convert_to_example(image_data, labels, labels_text, bboxes, shape)
+    image_data, shape, bboxes, labels, labels_text, difficult, truncated = \
+        _process_image(dataset_dir, name)
+    example = _convert_to_example(image_data, labels, labels_text,
+                                  bboxes, shape, difficult, truncated)
     tfrecord_writer.write(example.SerializeToString())
 
 

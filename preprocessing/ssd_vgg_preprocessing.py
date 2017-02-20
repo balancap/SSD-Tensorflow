@@ -14,7 +14,7 @@
 # ==============================================================================
 """Pre-processing images for SSD-type networks.
 """
-from enum import Enum
+from enum import Enum, IntEnum
 import numpy as np
 
 import tensorflow as tf
@@ -28,9 +28,10 @@ from nets import ssd_common
 slim = tf.contrib.slim
 
 # Resizing strategies.
-Resize = Enum('Resize', ('NONE',                # Nothing!
-                         'CENTRAL_CROP',        # Crop (and pad if necessary).
-                         'PAD_AND_RESIZE'))     # Pad, and resize to output .shape
+Resize = IntEnum('Resize', ('NONE',                # Nothing!
+                            'CENTRAL_CROP',        # Crop (and pad if necessary).
+                            'PAD_AND_RESIZE',      # Pad, and resize to output shape.
+                            'WARP_RESIZE'))        # Warp resize.
 
 # VGG mean parameters.
 _R_MEAN = 123.
@@ -40,6 +41,7 @@ _B_MEAN = 104.
 # Some training pre-processing parameters.
 BBOX_CROP_OVERLAP = 0.4        # Minimum overlap to keep a bbox after cropping.
 CROP_RATIO_RANGE = (0.8, 1.2)  # Distortion ratio during cropping.
+EVAL_SIZE = (300, 300)
 
 
 def tf_image_whitened(image, means=[_R_MEAN, _G_MEAN, _B_MEAN]):
@@ -287,7 +289,8 @@ def preprocess_for_train(image, labels, bboxes, out_shape,
         return image, labels, bboxes
 
 
-def preprocess_for_eval(image, labels, bboxes, out_shape, resize,
+def preprocess_for_eval(image, labels, bboxes, out_shape=EVAL_SIZE,
+                        difficults=None, resize=Resize.WARP_RESIZE,
                         scope='ssd_preprocessing_train'):
     """Preprocess an image for evaluation.
 
@@ -313,10 +316,11 @@ def preprocess_for_eval(image, labels, bboxes, out_shape, resize,
         else:
             bboxes = tf.concat([bbox_img, bboxes], axis=0)
 
-        # Resize strategy...
         if resize == Resize.NONE:
+            # No resizing...
             pass
         elif resize == Resize.CENTRAL_CROP:
+            # Central cropping of the image.
             image, bboxes = tf_image.resize_image_bboxes_with_crop_or_pad(
                 image, bboxes, out_shape[0], out_shape[1])
         elif resize == Resize.PAD_AND_RESIZE:
@@ -334,10 +338,19 @@ def preprocess_for_eval(image, labels, bboxes, out_shape, resize,
             # Pad to expected size.
             image, bboxes = tf_image.resize_image_bboxes_with_crop_or_pad(
                 image, bboxes, out_shape[0], out_shape[1])
+        elif resize == Resize.WARP_RESIZE:
+            # Warp resize of the image.
+            image = tf_image.resize_image(image, out_shape,
+                                          method=tf.image.ResizeMethod.BILINEAR,
+                                          align_corners=False)
 
         # Split back bounding boxes.
         bbox_img = bboxes[0]
         bboxes = bboxes[1:]
+        # Remove difficult boxes.
+        mask = tf.logical_not(tf.cast(difficults, tf.bool))
+        labels = tf.boolean_mask(labels, mask)
+        bboxes = tf.boolean_mask(bboxes, mask)
         return image, labels, bboxes, bbox_img
 
 
@@ -346,7 +359,7 @@ def preprocess_image(image,
                      bboxes,
                      out_shape,
                      is_training=False,
-                     resize=Resize.PAD_AND_RESIZE):
+                     **kwargs):
     """Pre-process an given image.
 
     Args:
@@ -369,4 +382,4 @@ def preprocess_image(image,
     if is_training:
         return preprocess_for_train(image, labels, bboxes, out_shape)
     else:
-        return preprocess_for_eval(image, labels, bboxes, out_shape, resize)
+        return preprocess_for_eval(image, labels, bboxes, out_shape, **kwargs)

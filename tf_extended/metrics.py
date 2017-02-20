@@ -166,23 +166,29 @@ def streaming_precision_recall_arrays(n_gbboxes, rclasses, rscores,
         fp_op = state_ops.assign(v_fp, tf.concat([v_fp, fp_tensor], axis=0),
                                  validate_shape=False)
 
-        tp_op = tf.Print(tp_op, [tf.shape(tp_op), tf.reduce_sum(tf.cast(tp_op, tf.int64), axis=0)], 'TP and FP shape: ')
-        nobjects_op = tf.Print(nobjects_op, [nobjects_op], '# Groundtruth bboxes: ')
-
         # Precision and recall computations.
         r = _precision_recall(nobjects_op, scores_op, tp_op, fp_op, 'value')
 
         with ops.control_dependencies([nobjects_op, scores_op, tp_op, fp_op]):
             update_op = _precision_recall(nobjects_op, scores_op, tp_op, fp_op,
                                           'update_op')
-            update_op = tf.Print(update_op,
-                                 [update_op[0][0],
-                                  update_op[0][-1],
-                                  tf.reduce_min(update_op[0]),
-                                  tf.reduce_max(update_op[0]),
-                                  tf.reduce_min(update_op[1]),
-                                  tf.reduce_max(update_op[1])],
-                                 'Precision and recall :')
+
+            # Some debugging stuff!
+            # update_op = tf.Print(update_op,
+            #                      [tf.shape(tp_op),
+            #                       tf.reduce_sum(tf.cast(tp_op, tf.int64), axis=0)],
+            #                      'TP and FP shape: ')
+            # update_op = tf.Print(update_op,
+            #                      [nobjects_op],
+            #                      '# Groundtruth bboxes: ')
+            # update_op = tf.Print(update_op,
+            #                      [update_op[0][0],
+            #                       update_op[0][-1],
+            #                       tf.reduce_min(update_op[0]),
+            #                       tf.reduce_max(update_op[0]),
+            #                       tf.reduce_min(update_op[1]),
+            #                       tf.reduce_max(update_op[1])],
+            #                      'Precision and recall :')
 
         if metrics_collections:
             ops.add_to_collections(metrics_collections, r)
@@ -209,10 +215,10 @@ def average_precision(precision, recall, name=None):
         # Riemann sums for estimating the integral.
         mean_pre = (precision[1:] + precision[:-1]) / 2.
         diff_rec = recall[1:] - recall[:-1]
-        diff_rec = tf.Print(diff_rec,
-                            [tf.reduce_sum(diff_rec),
-                             tf.reduce_min(precision),
-                             tf.reduce_max(precision)], 'AP: ')
+        # diff_rec = tf.Print(diff_rec,
+        #                     [tf.reduce_sum(diff_rec),
+        #                      tf.reduce_min(precision),
+        #                      tf.reduce_max(precision)], 'AP: ')
 
         ap = tf.reduce_sum(mean_pre * diff_rec)
         # ap = 1.

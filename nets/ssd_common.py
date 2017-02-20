@@ -270,7 +270,7 @@ def tf_ssd_bboxes_select_layer(predictions_layer, localizations_layer,
     localizations_layer = tf.reshape(localizations_layer,
                                      tf.stack([l_shape[0], -1, l_shape[-1]]))
     # Boxes selection: use threshold or score > no-label criteria.
-    if select_threshold is None:
+    if select_threshold is None or select_threshold == 0:
         # Class prediction and scores: assign 0. to 0-class
         classes = tf.argmax(predictions_layer, axis=2)
         scores = tf.reduce_max(predictions_layer, axis=2)
@@ -307,8 +307,6 @@ def tf_ssd_bboxes_select(predictions_net, localizations_net,
         l_classes = []
         l_scores = []
         l_bboxes = []
-        # l_layers = []
-        # l_idxes = []
         for i in range(len(predictions_net)):
             classes, scores, bboxes = tf_ssd_bboxes_select_layer(predictions_net[i],
                                                                  localizations_net[i],
@@ -321,5 +319,4 @@ def tf_ssd_bboxes_select(predictions_net, localizations_net,
         scores = tf.concat(l_scores, axis=1)
         bboxes = tf.concat(l_bboxes, axis=1)
         return classes, scores, bboxes
-
 
