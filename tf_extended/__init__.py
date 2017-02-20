@@ -1,10 +1,10 @@
-# Copyright 2016 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2017 Paul Balanca. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-# http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,5 +18,7 @@
 # pylint: disable=unused-import,line-too-long,g-importing-member,wildcard-import
 from tf_extended.metrics import *
 from tf_extended.tensors import *
+from tf_extended.bboxes import *
+from tf_extended.image import *
 from tf_extended.math import *
 

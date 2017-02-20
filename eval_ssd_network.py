@@ -165,15 +165,15 @@ def main(_):
             rclasses, rscores, rbboxes = \
                 ssd_net.detected_bboxes(predictions, localisations,
                                         select_threshold=None,
-                                        nms_threshold=0.45,
+                                        nms_threshold=0.4,
                                         clipping_bbox=b_gbbox_img,
-                                        max_objects=400, top_k=400)
+                                        top_k=400)
 
             # Compute TP and FP statistics.
             n_gbboxes, tp_tensor, fp_tensor = \
-                ssd_common.tf_bboxes_matching_batch(rclasses, rscores, rbboxes,
-                                                    b_glabels, b_gbboxes,
-                                                    matching_threshold=0.5)
+                tfe.bboxes_matching_batch(rclasses, rscores, rbboxes,
+                                          b_glabels, b_gbboxes,
+                                          matching_threshold=0.5)
 
         # Variables to restore: moving avg. or normal weights.
         if FLAGS.moving_average_decay:

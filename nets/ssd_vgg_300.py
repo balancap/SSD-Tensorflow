@@ -33,8 +33,8 @@ from collections import namedtuple
 
 import numpy as np
 import tensorflow as tf
-from tensorflow.python.ops import array_ops
 
+import tf_extended as tfe
 from nets import custom_layers
 from nets import ssd_common
 
@@ -184,24 +184,22 @@ class SSDNet(object):
 
     def detected_bboxes(self, predictions, localisations,
                         select_threshold=None, nms_threshold=0.5,
-                        clipping_bbox=None,
-                        max_objects=50, top_k=400):
+                        clipping_bbox=None, top_k=400):
         """Get the detected bounding boxes from the SSD network output.
         """
         # Select top_k bboxes from predictions, and clip
         rclasses, rscores, rbboxes = \
-            ssd_common.tf_ssd_bboxes_select(predictions, localisations, select_threshold)
+            ssd_common.tf_ssd_bboxes_select(predictions, localisations,
+                                            select_threshold=select_threshold)
         rclasses, rscores, rbboxes = \
-            ssd_common.tf_bboxes_sort(rclasses, rscores, rbboxes,
-                                      top_k=top_k)
+            tfe.bboxes_sort(rclasses, rscores, rbboxes, top_k=top_k)
         if clipping_bbox is not None:
-            rbboxes = ssd_common.tf_bboxes_clip(clipping_bbox, rbboxes)
+            rbboxes = tfe.bboxes_clip(clipping_bbox, rbboxes)
         # Apply NMS algorithm.
         rclasses, rscores, rbboxes = \
-            ssd_common.tf_bboxes_nms_batch(rclasses, rscores, rbboxes,
-                                           nms_threshold=nms_threshold,
-                                           max_objects=max_objects,
-                                           num_classes=self.params.num_classes)
+            tfe.bboxes_nms_batch(rclasses, rscores, rbboxes,
+                                 nms_threshold=nms_threshold,
+                                 num_classes=self.params.num_classes)
         return rclasses, rscores, rbboxes
 
     def losses(self, logits, localisations,
@@ -364,7 +362,7 @@ def tensor_shape(x, rank=3):
         return x.get_shape().as_list()
     else:
         static_shape = x.get_shape().with_rank(rank).as_list()
-        dynamic_shape = array_ops.unstack(array_ops.shape(x), rank)
+        dynamic_shape = tf.unstack(tf.shape(x), rank)
         return [s if s is not None else d
                 for s, d in zip(static_shape, dynamic_shape)]
 

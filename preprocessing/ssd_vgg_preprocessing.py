@@ -15,9 +15,11 @@
 """Pre-processing images for SSD-type networks.
 """
 from enum import Enum
-
 import numpy as np
+
 import tensorflow as tf
+import tf_extended as tfe
+
 from tensorflow.python.ops import control_flow_ops
 
 from preprocessing import tf_image
@@ -219,9 +221,9 @@ def distorted_bounding_box_crop(image,
         cropped_image.set_shape([None, None, 3])
 
         # Update bounding boxes: resize and filter out.
-        bboxes = ssd_common.tf_bboxes_resize(distort_bbox, bboxes)
-        labels, bboxes = ssd_common.tf_bboxes_filter_overlap(labels, bboxes,
-                                                             BBOX_CROP_OVERLAP)
+        bboxes = tfe.bboxes_resize(distort_bbox, bboxes)
+        labels, bboxes = tfe.bboxes_filter_overlap(labels, bboxes,
+                                                   BBOX_CROP_OVERLAP)
         return cropped_image, labels, bboxes, distort_bbox
 
 

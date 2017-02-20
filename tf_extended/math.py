@@ -38,7 +38,6 @@ def safe_divide(numerator, denominator, name):
         name=name)
 
 
-
 def cummax(x, reverse=False, name=None):
     """Compute the cumulative maximum of the tensor `x` along `axis`. This
     operation is similar to the more classic `cumsum`. Only support 1D Tensor

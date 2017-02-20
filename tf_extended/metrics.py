@@ -30,7 +30,7 @@ from tensorflow.python.ops import state_ops
 from tensorflow.python.ops import variable_scope
 from tensorflow.python.ops import variables
 
-import tf_extended as tfe
+from tf_extended import math as tfe_math
 
 
 # =========================================================================== #
@@ -204,7 +204,7 @@ def average_precision(precision, recall, name=None):
         precision = tf.concat([[0.], precision, [0.]], axis=0)
         recall = tf.concat([[0.], recall, [1.]], axis=0)
         # Ensures precision is increasing in reverse order.
-        precision = tfe.cummax(precision, reverse=True)
+        precision = tfe_math.cummax(precision, reverse=True)
 
         # Riemann sums for estimating the integral.
         mean_pre = (precision[1:] + precision[:-1]) / 2.
