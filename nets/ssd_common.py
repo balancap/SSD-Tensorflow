@@ -16,6 +16,7 @@
 """
 import numpy as np
 import tensorflow as tf
+import tf_extended as tfe
 
 
 # =========================================================================== #
@@ -248,11 +249,16 @@ def tf_ssd_bboxes_decode(feat_localizations,
         return bboxes
 
 
-def tf_ssd_bboxes_select_layer(predictions_layer,
-                               localizations_layer):
+def tf_ssd_bboxes_select_layer(predictions_layer, localizations_layer,
+                               select_threshold=None):
     """Extract classes, scores and bounding boxes from features in one layer.
     Batch-compatible: inputs are supposed to have batch-type shapes.
 
+    Args:
+      predictions_layer: A SSD prediction layer;
+      localizations_layer: A SSD localization layer;
+      select_threshold: Classification threshold for selecting a box. If None,
+        select boxes whose classification score is higher than 'no class'.
     Return:
       classes, scores, bboxes: Input Tensors.
     """
@@ -263,21 +269,36 @@ def tf_ssd_bboxes_select_layer(predictions_layer,
     l_shape = tf_shape(localizations_layer)
     localizations_layer = tf.reshape(localizations_layer,
                                      tf.stack([l_shape[0], -1, l_shape[-1]]))
-    # Class prediction and scores: assign 0. to 0-class
-    classes = tf.argmax(predictions_layer, axis=2)
-    scores = tf.reduce_max(predictions_layer, axis=2)
-    scores = scores * tf.cast(classes > 0, scores.dtype)
-
+    # Boxes selection: use threshold or score > no-label criteria.
+    if select_threshold is None:
+        # Class prediction and scores: assign 0. to 0-class
+        classes = tf.argmax(predictions_layer, axis=2)
+        scores = tf.reduce_max(predictions_layer, axis=2)
+        scores = scores * tf.cast(classes > 0, scores.dtype)
+    else:
+        sub_predictions = predictions_layer[:, :, 1:]
+        classes = tf.argmax(sub_predictions, axis=2) + 1
+        scores = tf.reduce_max(sub_predictions, axis=2)
+        # Only keep predictions higher than threshold.
+        mask = tf.greater(scores, select_threshold)
+        classes = classes * tf.cast(mask, classes.dtype)
+        scores = scores * tf.cast(mask, scores.dtype)
+    # Assume localization layer already decoded.
     bboxes = localizations_layer
-
     return classes, scores, bboxes
 
 
-def tf_ssd_bboxes_select(predictions_net,
-                         localizations_net,
+def tf_ssd_bboxes_select(predictions_net, localizations_net,
+                         select_threshold=None,
                          scope=None):
     """Extract classes, scores and bounding boxes from network output layers.
+    Batch-compatible: inputs are supposed to have batch-type shapes.
 
+    Args:
+      predictions_net: List of SSD prediction layers;
+      localizations_net: List of localization layers;
+      select_threshold: Classification threshold for selecting a box. If None,
+        select boxes whose classification score is higher than 'no class'.
     Return:
       classes, scores, bboxes: Tensors.
     """
@@ -290,7 +311,8 @@ def tf_ssd_bboxes_select(predictions_net,
         # l_idxes = []
         for i in range(len(predictions_net)):
             classes, scores, bboxes = tf_ssd_bboxes_select_layer(predictions_net[i],
-                                                                 localizations_net[i])
+                                                                 localizations_net[i],
+                                                                 select_threshold)
             l_classes.append(classes)
             l_scores.append(scores)
             l_bboxes.append(bboxes)
@@ -366,13 +388,25 @@ def tf_bboxes_sort(classes, scores, bboxes, top_k=400, scope=None):
 
 def tf_bboxes_clip(bbox_ref, bboxes, scope=None):
     """Clip bounding boxes to a reference box.
-    Batch-compatible.
+    Batch-compatible if the first dimension of `bbox_ref` and `bboxes`
+    can be broadcasted.
+
+    Args:
+      bbox_ref: Reference bounding box. Nx4 or 4 shaped-Tensor;
+      bboxes: Bounding boxes to clip. Nx4 or 4 shaped-Tensor;
+    Return:
+      Clipped bboxes.
     """
     with tf.name_scope(scope, 'bboxes_clip'):
-        bboxes = tf.maximum(bboxes, tf.stack([bbox_ref[0], bbox_ref[1],
-                                              -np.inf, -np.inf]))
-        bboxes = tf.minimum(bboxes, tf.stack([np.inf, np.inf,
-                                              bbox_ref[2], bbox_ref[3]]))
+        # Easier with transpose bboxes. Especially for broadcasting.
+        bbox_ref = tf.transpose(bbox_ref)
+        bboxes = tf.transpose(bboxes)
+        # Intersection bboxes and reference bbox.
+        ymin = tf.maximum(bboxes[0], bbox_ref[0])
+        xmin = tf.maximum(bboxes[1], bbox_ref[1])
+        ymax = tf.minimum(bboxes[2], bbox_ref[2])
+        xmax = tf.minimum(bboxes[3], bbox_ref[3])
+        bboxes = tf.transpose(tf.stack([ymin, xmin, ymax, xmax], axis=0))
         return bboxes
 
 
@@ -456,9 +490,10 @@ def tf_bboxes_matching(rclasses, rscores, rbboxes, glabels, gbboxes,
         grange = tf.range(tf.size(glabels), dtype=tf.int32)
 
         # Matching TensorArrays.
-        ta_tp_bool = tf.TensorArray(tf.bool, size=rsize,
+        sdtype = tf.bool
+        ta_tp_bool = tf.TensorArray(sdtype, size=rsize,
                                     dynamic_size=False, infer_shape=True)
-        ta_fp_bool = tf.TensorArray(tf.bool, size=rsize,
+        ta_fp_bool = tf.TensorArray(sdtype, size=rsize,
                                     dynamic_size=False, infer_shape=True)
 
         # Loop over returned objects.
@@ -473,7 +508,12 @@ def tf_bboxes_matching(rclasses, rscores, rbboxes, glabels, gbboxes,
             rbbox = rbboxes[i]
             rlabel = rclasses[i]
             jaccard = tf_bboxes_jaccard(rbbox, gbboxes)
-            # jaccard = jaccard * tf.cast(glabels == rlabel, dtype=jaccard.dtype)
+            jaccard = jaccard * tf.cast(tf.equal(glabels, rlabel), dtype=jaccard.dtype)
+            # jaccard = tf.Print(jaccard,
+            #                    [jaccard, rlabel, rscores[i],
+            #                     rbbox[0:2], rbbox[2:4],
+            #                     glabels],
+            #                    'Jaccard: ')
 
             # Best fit, checking it's above threshold.
             idxmax = tf.cast(tf.argmax(jaccard, axis=0), tf.int32)
@@ -493,10 +533,22 @@ def tf_bboxes_matching(rclasses, rscores, rbboxes, glabels, gbboxes,
         [i, ta_tp_bool, ta_fp_bool, gmatch] = \
             tf.while_loop(m_condition, m_body,
                           [i, ta_tp_bool, ta_fp_bool, gmatch],
+                          parallel_iterations=10,
                           back_prop=False)
         # TensorArrays to Tensors and reshape.
-        tp_match = tf.reshape(ta_fp_bool.stack(), rshape)
-        fp_match = tf.reshape(ta_tp_bool.stack(), rshape)
+        tp_match = tf.reshape(ta_tp_bool.stack(), rshape)
+        fp_match = tf.reshape(ta_fp_bool.stack(), rshape)
+
+        tp_match = tf.Print(tp_match,
+                            [n_gbboxes,
+                             tf.reduce_sum(tf.cast(tp_match, tf.int64)),
+                             tf.reduce_sum(tf.cast(fp_match, tf.int64)),
+                             tf.reduce_sum(tf.cast(gmatch, tf.int64))],
+                            'Matching: ')
+
+        tp_match = tf.cast(tp_match, tf.bool)
+        fp_match = tf.cast(fp_match, tf.bool)
+
         return n_gbboxes, tp_match, fp_match
 
 
@@ -528,6 +580,7 @@ def tf_bboxes_jaccard(bbox_ref, bboxes, name=None):
     with tf.name_scope(name, 'bboxes_jaccard'):
         # Should be more efficient to first transpose.
         bboxes = tf.transpose(bboxes)
+        bbox_ref = tf.transpose(bbox_ref)
         # Intersection bbox and volume.
         int_ymin = tf.maximum(bboxes[0], bbox_ref[0])
         int_xmin = tf.maximum(bboxes[1], bbox_ref[1])
@@ -540,7 +593,7 @@ def tf_bboxes_jaccard(bbox_ref, bboxes, name=None):
         union_vol = -inter_vol \
             + (bboxes[2] - bboxes[0]) * (bboxes[3] - bboxes[1]) \
             + (bbox_ref[2] - bbox_ref[0]) * (bbox_ref[3] - bbox_ref[1])
-        jaccard = tf.divide(inter_vol, union_vol)
+        jaccard = tfe.safe_divide(inter_vol, union_vol, 'jaccard')
         return jaccard
 
 

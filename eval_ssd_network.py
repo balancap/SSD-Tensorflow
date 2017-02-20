@@ -34,7 +34,7 @@ slim = tf.contrib.slim
 # Some default EVAL parameters
 # =========================================================================== #
 # List of recalls values at which precision is evaluated.
-LIST_RECALLS = [0.4, 0.5, 0.6, 0.7, 0.8, 0.85, 0.87, 0.88, 0.89,
+LIST_RECALLS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.85, 0.87, 0.88, 0.89,
                 0.90, 0.91, 0.92, 0.93, 0.94, 0.95, 0.96, 0.97, 0.98, 0.99]
 
 # =========================================================================== #
@@ -128,23 +128,23 @@ def main(_):
                                                              'object/label',
                                                              'object/bbox'])
             # Pre-processing image, labels and bboxes.
-            image, glabels, gbboxes, _ = \
+            image, glabels, gbboxes, gbbox_img = \
                 image_preprocessing_fn(image, glabels, gbboxes, ssd_shape)
             # Encode groundtruth labels and bboxes.
             gclasses, glocalisations, gscores = \
                 ssd_net.bboxes_encode(glabels, gbboxes, ssd_anchors)
-            batch_shape = [1] * 3 + [len(ssd_anchors)] * 3
+            batch_shape = [1] * 4 + [len(ssd_anchors)] * 3
 
             # Evaluation batch.
             r = tf.train.batch(
-                tf_utils.reshape_list([image, glabels, gbboxes,
+                tf_utils.reshape_list([image, glabels, gbboxes, gbbox_img,
                                        gclasses, glocalisations, gscores]),
                 batch_size=FLAGS.batch_size,
                 num_threads=FLAGS.num_preprocessing_threads,
                 capacity=5 * FLAGS.batch_size,
                 dynamic_pad=True)
-            b_image, b_glabels, b_gbboxes, b_gclasses, b_glocalisations, b_gscores = \
-                tf_utils.reshape_list(r, batch_shape)
+            (b_image, b_glabels, b_gbboxes, b_gbbox_img, b_gclasses,
+             b_glocalisations, b_gscores) = tf_utils.reshape_list(r, batch_shape)
 
         # =================================================================== #
         # SSD Network + Ouputs decoding.
@@ -160,25 +160,20 @@ def main(_):
 
         # Performing post-processing on CPU: loop-intensive, usually more efficient.
         with tf.device('/cpu:0'):
-            # Decoding SSD outputs.
+            # Detected objects from SSD output.
+            localisations = ssd_net.bboxes_decode(localisations, ssd_anchors)
             rclasses, rscores, rbboxes = \
-                ssd_common.tf_ssd_bboxes_select(predictions, localisations)
-            rclasses, rscores, rbboxes = \
-                ssd_common.tf_bboxes_sort(rclasses, rscores, rbboxes, top_k=400)
-            rclasses, rscores, rbboxes = \
-                ssd_common.tf_bboxes_nms_batch(rclasses, rscores, rbboxes,
-                                               nms_threshold=0.5, max_objects=50,
-                                               num_classes=ssd_params.num_classes)
+                ssd_net.detected_bboxes(predictions, localisations,
+                                        select_threshold=None,
+                                        nms_threshold=0.45,
+                                        clipping_bbox=b_gbbox_img,
+                                        max_objects=400, top_k=400)
 
             # Compute TP and FP statistics.
-            n_gbboxes, tp_match, fp_match = \
+            n_gbboxes, tp_tensor, fp_tensor = \
                 ssd_common.tf_bboxes_matching_batch(rclasses, rscores, rbboxes,
                                                     b_glabels, b_gbboxes,
                                                     matching_threshold=0.5)
-
-            print(n_gbboxes)
-            print(tp_match)
-            print(fp_match)
 
         # Variables to restore: moving avg. or normal weights.
         if FLAGS.moving_average_decay:
@@ -213,24 +208,23 @@ def main(_):
             # Precision / recall arrays metrics.
             dict_metrics['precision_recall'] = \
                 tfe.streaming_precision_recall_arrays(n_gbboxes, rclasses, rscores,
-                                                      tp_match, fp_match)
-        # # Add to summaries precision/recall values.
-        # metric_val = dict_metrics['precision_recall'][0]
-        # l_precisions = tfe.precision_recall_values(LIST_RECALLS,
-        #                                            metric_val[0],
-        #                                            metric_val[1])
-        # for i, v in enumerate(l_precisions):
-        #     summary_name = 'eval/precision_at_recall_%.2f' % LIST_RECALLS[i]
-        #     op = tf.summary.scalar(summary_name, v, collections=[])
-        #     op = tf.Print(op, [v], summary_name)
-        #     tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
-        # # Compute Average Precision as well.
-        # ap = tfe.average_precision(metric_val[0], metric_val[1])
-        # summary_name = 'eval/average_precision'
-        # op = tf.summary.scalar(summary_name, ap, collections=[])
-        # op = tf.Print(op, [ap], summary_name)
-        # tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
-
+                                                      tp_tensor, fp_tensor)
+        # Add to summaries precision/recall values.
+        metric_val = dict_metrics['precision_recall'][0]
+        l_precisions = tfe.precision_recall_values(LIST_RECALLS,
+                                                   metric_val[0],
+                                                   metric_val[1])
+        for i, v in enumerate(l_precisions):
+            summary_name = 'eval/precision_at_recall_%.2f' % LIST_RECALLS[i]
+            op = tf.summary.scalar(summary_name, v, collections=[])
+            op = tf.Print(op, [v], summary_name)
+            tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
+        # Compute Average Precision as well.
+        ap = tfe.average_precision(metric_val[0], metric_val[1])
+        summary_name = 'eval/average_precision'
+        op = tf.summary.scalar(summary_name, ap, collections=[])
+        op = tf.Print(op, [ap], summary_name)
+        tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
 
         # Split into values and updates ops.
         names_to_values, names_to_updates = slim.metrics.aggregate_metric_map(dict_metrics)

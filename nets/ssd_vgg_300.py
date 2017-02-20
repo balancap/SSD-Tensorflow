@@ -182,6 +182,28 @@ class SSDNet(object):
             prior_scaling=self.params.prior_scaling,
             scope=scope)
 
+    def detected_bboxes(self, predictions, localisations,
+                        select_threshold=None, nms_threshold=0.5,
+                        clipping_bbox=None,
+                        max_objects=50, top_k=400):
+        """Get the detected bounding boxes from the SSD network output.
+        """
+        # Select top_k bboxes from predictions, and clip
+        rclasses, rscores, rbboxes = \
+            ssd_common.tf_ssd_bboxes_select(predictions, localisations, select_threshold)
+        rclasses, rscores, rbboxes = \
+            ssd_common.tf_bboxes_sort(rclasses, rscores, rbboxes,
+                                      top_k=top_k)
+        if clipping_bbox is not None:
+            rbboxes = ssd_common.tf_bboxes_clip(clipping_bbox, rbboxes)
+        # Apply NMS algorithm.
+        rclasses, rscores, rbboxes = \
+            ssd_common.tf_bboxes_nms_batch(rclasses, rscores, rbboxes,
+                                           nms_threshold=nms_threshold,
+                                           max_objects=max_objects,
+                                           num_classes=self.params.num_classes)
+        return rclasses, rscores, rbboxes
+
     def losses(self, logits, localisations,
                gclasses, glocalisations, gscores,
                label_smoothing=0.,

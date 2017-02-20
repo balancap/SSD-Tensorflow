@@ -344,7 +344,7 @@ def preprocess_image(image,
                      bboxes,
                      out_shape,
                      is_training=False,
-                     resize=Resize.CENTRAL_CROP):
+                     resize=Resize.PAD_AND_RESIZE):
     """Pre-process an given image.
 
     Args:
