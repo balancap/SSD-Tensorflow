@@ -15,15 +15,12 @@
 """TF Extended: additional metrics.
 """
 import tensorflow as tf
+import numpy as np
 
 from tensorflow.contrib.framework.python.ops import variables as contrib_variables
-from tensorflow.contrib.metrics.python.ops import set_ops
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
-from tensorflow.python.framework import sparse_tensor
 from tensorflow.python.ops import array_ops
-from tensorflow.python.ops import check_ops
-from tensorflow.python.ops import control_flow_ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import nn
 from tensorflow.python.ops import state_ops
@@ -100,14 +97,14 @@ def _broadcast_weights(weights, values):
 # =========================================================================== #
 # TF Extended metrics
 # =========================================================================== #
-def _precision_recall(n_gbboxes, scores, tp, fp, scope=None):
+def _precision_recall(n_gbboxes, n_detections, scores, tp, fp, scope=None):
     """Compute precision and recall from scores, true positives and false
     positives booleans arrays
     """
     # Sort by score.
     with tf.name_scope(scope, 'prec_rec', [n_gbboxes, scores, tp, fp]):
         # Sort detections by score.
-        scores, idxes = tf.nn.top_k(scores, k=tf.size(scores), sorted=True)
+        scores, idxes = tf.nn.top_k(scores, k=n_detections, sorted=True)
         tp = tf.gather(tp, idxes)
         fp = tf.gather(fp, idxes)
         # Computer recall and precision.
@@ -116,6 +113,7 @@ def _precision_recall(n_gbboxes, scores, tp, fp, scope=None):
         fp = tf.cumsum(tf.cast(fp, dtype), axis=0)
         recall = _safe_div(tp, tf.cast(n_gbboxes, dtype), 'recall')
         precision = _safe_div(tp, tp + fp, 'precision')
+
         return tf.tuple([precision, recall])
 
 
@@ -152,14 +150,17 @@ def streaming_precision_recall_arrays(n_gbboxes, rclasses, rscores,
 
         # Local variables accumlating information over batches.
         v_nobjects = _create_local('v_nobjects', shape=[], dtype=tf.int64)
+        v_ndetections = _create_local('v_ndetections', shape=[], dtype=tf.int32)
         v_scores = _create_local('v_scores', shape=[0, ])
         v_tp = _create_local('v_tp', shape=[0, ], dtype=stype)
         v_fp = _create_local('v_fp', shape=[0, ], dtype=stype)
 
         # Update operations.
-        nobjects_op = state_ops.assign_add(v_nobjects, tf.reduce_sum(n_gbboxes))
-        scores_op = state_ops.assign(v_scores,
-                                     tf.concat([v_scores, rscores], axis=0),
+        nobjects_op = state_ops.assign_add(v_nobjects,
+                                           tf.reduce_sum(n_gbboxes))
+        ndetections_op = state_ops.assign_add(v_ndetections,
+                                              tf.size(rscores, out_type=tf.int32))
+        scores_op = state_ops.assign(v_scores, tf.concat([v_scores, rscores], axis=0),
                                      validate_shape=False)
         tp_op = state_ops.assign(v_tp, tf.concat([v_tp, tp_tensor], axis=0),
                                  validate_shape=False)
@@ -167,18 +168,21 @@ def streaming_precision_recall_arrays(n_gbboxes, rclasses, rscores,
                                  validate_shape=False)
 
         # Precision and recall computations.
-        r = _precision_recall(nobjects_op, scores_op, tp_op, fp_op, 'value')
+        # r = _precision_recall(nobjects_op, scores_op, tp_op, fp_op, 'value')
+        r = _precision_recall(v_nobjects, v_ndetections, v_scores,
+                              v_tp, v_fp, 'value')
 
-        with ops.control_dependencies([nobjects_op, scores_op, tp_op, fp_op]):
-            update_op = _precision_recall(nobjects_op, scores_op, tp_op, fp_op,
-                                          'update_op')
+        with ops.control_dependencies([nobjects_op, ndetections_op,
+                                       scores_op, tp_op, fp_op]):
+            update_op = _precision_recall(nobjects_op, ndetections_op,
+                                          scores_op, tp_op, fp_op, 'update_op')
 
             # Some debugging stuff!
             # update_op = tf.Print(update_op,
             #                      [tf.shape(tp_op),
             #                       tf.reduce_sum(tf.cast(tp_op, tf.int64), axis=0)],
             #                      'TP and FP shape: ')
-            # update_op = tf.Print(update_op,
+            # update_op[0] = tf.Print(update_op,
             #                      [nobjects_op],
             #                      '# Groundtruth bboxes: ')
             # update_op = tf.Print(update_op,
@@ -199,7 +203,7 @@ def streaming_precision_recall_arrays(n_gbboxes, rclasses, rscores,
 
 def average_precision(precision, recall, name=None):
     """Compute a average precision from precision and recall Tensors.
-    Implementation inspired by the Pascal 2012 devkit.
+    Implementation following Pascal 2012 and ILSVRC guidelines.
     """
     with tf.name_scope(name, 'average_precision', [precision, recall]):
         # Convert to float64 to decrease error on Riemann sums.
@@ -213,15 +217,32 @@ def average_precision(precision, recall, name=None):
         precision = tfe_math.cummax(precision, reverse=True)
 
         # Riemann sums for estimating the integral.
-        mean_pre = (precision[1:] + precision[:-1]) / 2.
+        # mean_pre = (precision[1:] + precision[:-1]) / 2.
+        mean_pre = precision[1:]
         diff_rec = recall[1:] - recall[:-1]
-        # diff_rec = tf.Print(diff_rec,
-        #                     [tf.reduce_sum(diff_rec),
-        #                      tf.reduce_min(precision),
-        #                      tf.reduce_max(precision)], 'AP: ')
-
         ap = tf.reduce_sum(mean_pre * diff_rec)
-        # ap = 1.
+        return ap
+
+
+def average_precision_voc07(precision, recall, name=None):
+    """Compute a average precision from precision and recall Tensors.
+    Implementation following Pascal 2007 guidelines.
+    """
+    with tf.name_scope(name, 'average_precision_voc07', [precision, recall]):
+        # Convert to float64 to decrease error on cumulated sums.
+        precision = tf.cast(precision, dtype=tf.float64)
+        recall = tf.cast(recall, dtype=tf.float64)
+        # Add zero-limit value to avoid any boundary problem...
+        precision = tf.concat([precision, [0.]], axis=0)
+        recall = tf.concat([recall, [np.inf]], axis=0)
+
+        # Split the integral into 10 bins.
+        l_aps = []
+        for t in np.arange(0., 1.1, 0.1):
+            mask = tf.greater_equal(recall, t)
+            v = tf.reduce_max(tf.boolean_mask(precision, mask))
+            l_aps.append(v / 11.)
+        ap = tf.add_n(l_aps)
         return ap
 
 
@@ -237,6 +258,11 @@ def precision_recall_values(xvals, precision, recall, name=None):
     """
     with ops.name_scope(name, "precision_recall_values",
                         [precision, recall]) as name:
+        # Add bounds values to precision and recall.
+        precision = tf.concat([[0.], precision, [0.]], axis=0)
+        recall = tf.concat([[0.], recall, [1.]], axis=0)
+        precision = tfe_math.cummax(precision, reverse=True)
+
         prec_values = []
         for x in xvals:
             mask = tf.less_equal(recall, x)

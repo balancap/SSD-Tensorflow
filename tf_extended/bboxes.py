@@ -259,7 +259,7 @@ def bboxes_matching(rclasses, rscores, rbboxes,
         #                      tf.reduce_sum(tf.cast(tp_match, tf.int64)),
         #                      tf.reduce_sum(tf.cast(fp_match, tf.int64)),
         #                      tf.reduce_sum(tf.cast(gmatch, tf.int64))],
-        #                     'Matching: ')
+        #                     'Matching (NG, TP, FP, GM): ')
         return n_gbboxes, tp_match, fp_match
 
 

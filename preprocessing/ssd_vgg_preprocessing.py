@@ -348,9 +348,10 @@ def preprocess_for_eval(image, labels, bboxes, out_shape=EVAL_SIZE,
         bbox_img = bboxes[0]
         bboxes = bboxes[1:]
         # Remove difficult boxes.
-        mask = tf.logical_not(tf.cast(difficults, tf.bool))
-        labels = tf.boolean_mask(labels, mask)
-        bboxes = tf.boolean_mask(bboxes, mask)
+        if difficults is not None:
+            mask = tf.logical_not(tf.cast(difficults, tf.bool))
+            labels = tf.boolean_mask(labels, mask)
+            bboxes = tf.boolean_mask(bboxes, mask)
         return image, labels, bboxes, bbox_img
 
 

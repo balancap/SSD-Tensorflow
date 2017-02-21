@@ -21,6 +21,7 @@ import time
 import tensorflow as tf
 import tf_extended as tfe
 import tf_utils
+from tensorflow.python.framework import ops
 
 from datasets import dataset_factory
 from nets import nets_factory
@@ -43,11 +44,11 @@ tf.app.flags.DEFINE_integer(
 tf.app.flags.DEFINE_integer(
     'select_top_k', 400, 'Select top-k detected objects.')
 tf.app.flags.DEFINE_integer(
-    'nms_threshold', 0.35, 'Non-Maximum Selection threshold.')
+    'nms_threshold', 0.45, 'Non-Maximum Selection threshold.')
 tf.app.flags.DEFINE_integer(
     'matching_threshold', 0.5, 'Matching threshold with groundtruth objects.')
 tf.app.flags.DEFINE_integer(
-    'eval_resize', 3, 'Image resizing: None/CENTRAL_CROP/PAD_AND_RESIZE/WARP_RESIZE.')
+    'eval_resize', 4, 'Image resizing: None / CENTRAL_CROP / PAD_AND_RESIZE / WARP_RESIZE.')
 tf.app.flags.DEFINE_integer(
     'eval_image_size', None, 'Eval image size.')
 tf.app.flags.DEFINE_integer(
@@ -221,13 +222,14 @@ def main(_):
                 # summary_name = 'eval/%s' % name
                 summary_name = name
                 op = tf.summary.scalar(summary_name, metric[0], collections=[])
-                op = tf.Print(op, [metric[0]], summary_name)
+                # op = tf.Print(op, [metric[0]], summary_name)
                 tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
 
             # Precision / recall arrays metrics.
             dict_metrics['precision_recall'] = \
                 tfe.streaming_precision_recall_arrays(n_gbboxes, rclasses, rscores,
                                                       tp_tensor, fp_tensor)
+
         # Add to summaries precision/recall values.
         metric_val = dict_metrics['precision_recall'][0]
         l_precisions = tfe.precision_recall_values(LIST_RECALLS,
@@ -238,9 +240,17 @@ def main(_):
             op = tf.summary.scalar(summary_name, v, collections=[])
             op = tf.Print(op, [v], summary_name)
             tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
-        # Compute Average Precision as well.
+
+        # Compute Average Precision (Pascal 2012).
         ap = tfe.average_precision(metric_val[0], metric_val[1])
         summary_name = 'eval/average_precision'
+        op = tf.summary.scalar(summary_name, ap, collections=[])
+        op = tf.Print(op, [ap], summary_name)
+        tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
+
+        # Compute Average Precision (Pascal 2007).
+        ap = tfe.average_precision_voc07(metric_val[0], metric_val[1])
+        summary_name = 'eval/average_precision_voc07'
         op = tf.summary.scalar(summary_name, ap, collections=[])
         op = tf.Print(op, [ap], summary_name)
         tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
@@ -251,7 +261,7 @@ def main(_):
         # =================================================================== #
         # Evaluation loop.
         # =================================================================== #
-        gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=1.)
+        gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.2)
         config = tf.ConfigProto(log_device_placement=False,
                                 gpu_options=gpu_options)
         # Number of batches...

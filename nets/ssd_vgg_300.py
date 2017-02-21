@@ -200,6 +200,9 @@ class SSDNet(object):
             tfe.bboxes_nms_batch(rclasses, rscores, rbboxes,
                                  nms_threshold=nms_threshold,
                                  num_classes=self.params.num_classes)
+        rclasses, rscores, rbboxes = \
+            tfe.bboxes_sort(rclasses, rscores, rbboxes,
+                            top_k=tf.minimum(200, tf.shape(rclasses)[1]))
         return rclasses, rscores, rbboxes
 
     def losses(self, logits, localisations,
