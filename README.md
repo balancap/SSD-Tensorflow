@@ -34,10 +34,12 @@ Note the previous command generated a collection of TF-Records instead of a sing
 ## Evaluation on Pascal VOC 2007
 
 The present TensorFlow implementation of SSD models have the following performances:
-| Model |  Dataset | mAP | FPS  |
-|--------|:---------:|:------:|:------:|
-| SSD-300 | Pascal VOC 2007 | 0.72 | - |
-| SSD-512 | Pascal VOC 2007 | - | - |
+
+| Model | Training data  | Testing data | mAP | FPS  |
+|--------|:---------:|:------:|:------:|:------:|
+| SSD-300 VGG-based | VOC07+12 trainval | 0.717 | - |
+| SSD-512 VGG-based | VOC07+12 trainval | - | - |
+
 We are working hard at reproducing the same performance as the original [Caffe implementation](https://github.com/weiliu89/caffe/tree/ssd)!
 
 The previous evaluation metrics should be reproducible by running the following command:
@@ -53,7 +55,16 @@ python eval_ssd_network.py \
     --checkpoint_path=${CHECKPOINT_PATH} \
     --batch_size=1
 ```
-The evaluation script provides estimates on the recall-precision curve and compute the mAP metrics following the Pascal VOC 2007 and 2012 guidelines.
+The evaluation script provides estimates on the recall-precision curve and compute the mAP metrics following the Pascal VOC 2007 and 2012 guidelines. 
+
+In addition, if one wants to experiment/test a different Caffe SSD checkpoint, the former can be converted to TensorFlow checkpoints as following:
+```sh
+CAFFE_MODEL=./ckpts/SSD_300x300_ft_VOC0712/VGG_VOC0712_SSD_300x300_ft_iter_120000.caffemodel
+python caffe_to_tensorflow.py \
+    --model_name=ssd_300_vgg \
+    --num_classes=21 \
+    --caffemodel_path=${CAFFE_MODEL}
+```
 
 ## Training
 

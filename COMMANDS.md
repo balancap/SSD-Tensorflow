@@ -12,9 +12,9 @@ python tf_convert_data.py \
     --output_name=voc_2012_train \
     --output_dir=${OUTPUT_DIR}
 
-CAFFE_MODEL=/media/paul/DataExt4/PascalVOC/training/ckpts/SSD_512x512_ft/ssd_512_vgg.caffemodel
+CAFFE_MODEL=/media/paul/DataExt4/PascalVOC/training/ckpts/SSD_300x300_ft_VOC0712/VGG_VOC0712_SSD_300x300_ft_iter_120000.caffemodel
 python caffe_to_tensorflow.py \
-    --model_name=ssd_512_vgg \
+    --model_name=ssd_300_vgg_voc0712 \
     --num_classes=21 \
     --caffemodel_path=${CAFFE_MODEL}
 
@@ -41,7 +41,7 @@ python train_ssd_network.py \
     --batch_size=32
 
 EVAL_DIR=./logs/ssd_300_vgg_1_eval
-CHECKPOINT_PATH=/media/paul/DataExt4/PascalVOC/training/ckpts/SSD_300x300_ft/ssd_300_vgg.ckpt
+CHECKPOINT_PATH=./checkpoints/ssd_300_vgg_voc0712.ckpt
 python eval_ssd_network.py \
     --eval_dir=${EVAL_DIR} \
     --dataset_dir=${DATASET_DIR} \
@@ -49,7 +49,7 @@ python eval_ssd_network.py \
     --dataset_split_name=test \
     --model_name=ssd_300_vgg \
     --checkpoint_path=${CHECKPOINT_PATH} \
-    --batch_size=32 \
+    --batch_size=1 \
     --max_num_batches=10
 
 python eval_image_classifier.py \
