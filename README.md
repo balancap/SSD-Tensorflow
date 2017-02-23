@@ -37,8 +37,8 @@ The present TensorFlow implementation of SSD models have the following performan
 
 | Model | Training data  | Testing data | mAP | FPS  |
 |--------|:---------:|:------:|:------:|:------:|
-| SSD-300 VGG-based | VOC07+12 trainval | 0.717 | - |
-| SSD-512 VGG-based | VOC07+12 trainval | - | - |
+| SSD-300 VGG-based | VOC07+12 trainval | VOC07 test | 0.717 | - |
+| SSD-512 VGG-based | VOC07+12 trainval | - | - | - |
 
 We are working hard at reproducing the same performance as the original [Caffe implementation](https://github.com/weiliu89/caffe/tree/ssd)!
 

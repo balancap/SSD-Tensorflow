@@ -40,15 +40,15 @@ LIST_RECALLS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.85,
 # SSD evaluation Flags.
 # =========================================================================== #
 tf.app.flags.DEFINE_integer(
-    'select_threshold', 0.01, 'Selection threshold.')
+    'select_threshold', 0.35, 'Selection threshold.')
 tf.app.flags.DEFINE_integer(
     'select_top_k', 400, 'Select top-k detected objects.')
 tf.app.flags.DEFINE_integer(
-    'nms_threshold', 0.45, 'Non-Maximum Selection threshold.')
+    'nms_threshold', 0.35, 'Non-Maximum Selection threshold.')
 tf.app.flags.DEFINE_integer(
     'matching_threshold', 0.5, 'Matching threshold with groundtruth objects.')
 tf.app.flags.DEFINE_integer(
-    'eval_resize', 4, 'Image resizing: None / CENTRAL_CROP / PAD_AND_RESIZE / WARP_RESIZE.')
+    'eval_resize', 3, 'Image resizing: None / CENTRAL_CROP / PAD_AND_RESIZE / WARP_RESIZE.')
 tf.app.flags.DEFINE_integer(
     'eval_image_size', None, 'Eval image size.')
 tf.app.flags.DEFINE_integer(

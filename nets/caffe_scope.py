@@ -53,6 +53,7 @@ class CaffeScope(object):
             # Weights: reshape and transpose dimensions.
             w = np.array(layer.blobs[0].data)
             w = np.reshape(w, layer.blobs[0].shape.dim)
+            # w = np.transpose(w, (1, 0, 2, 3))
             w = np.transpose(w, (2, 3, 1, 0))
             if self.bgr_to_rgb == 1 and w.shape[2] == 3:
                 print('Convert BGR to RGB in convolution layer:', layer.name)

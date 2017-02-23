@@ -26,7 +26,27 @@ latter obtaining a slightly better accuracy on Pascal VOC.
 Usage:
     with slim.arg_scope(ssd_vgg.ssd_vgg()):
         outputs, end_points = ssd_vgg.ssd_vgg(inputs)
-@@ssd_vgg
+
+This network port of the original Caffe model. The padding in TF and Caffe
+is slightly different, and can lead to severe accuracy drop if not taken care
+in a correct way!
+
+In Caffe, the output size of convolution and pooling layers are computing as
+following: h_o = (h_i + 2 * pad_h - kernel_h) / stride_h + 1
+
+Nevertheless, there is a subtle difference between both for stride > 1. In
+the case of convolution:
+    top_size = floor((bottom_size + 2*pad - kernel_size) / stride) + 1
+whereas for pooling:
+    top_size = ceil((bottom_size + 2*pad - kernel_size) / stride) + 1
+Hence implicitely allowing some additional padding even if pad = 0. This
+behaviour explains why pooling with stride and kernel of size 2 are behaving
+the same way in TensorFlow and Caffe.
+
+Nevertheless, this is not the case anymore for other kernel sizes, hence
+motivating the use of special padding layer for controlling these side-effects.
+
+@@ssd_vgg_300
 """
 import math
 from collections import namedtuple
@@ -113,7 +133,7 @@ class SSDNet(object):
             prediction_fn=slim.softmax,
             reuse=None,
             scope='ssd_300_vgg'):
-        """Network definition.
+        """SSD network definition.
         """
         r = ssd_net(inputs,
                     num_classes=self.params.num_classes,
@@ -132,10 +152,10 @@ class SSDNet(object):
             self.params = self.params._replace(feat_shapes=shapes)
         return r
 
-    def arg_scope(self, weight_decay=0.0005):
+    def arg_scope(self, weight_decay=0.0005, data_format='NHWC'):
         """Network arg_scope.
         """
-        return ssd_arg_scope(weight_decay)
+        return ssd_arg_scope(weight_decay, data_format=data_format)
 
     def arg_scope_caffe(self, caffe_scope):
         """Caffe arg_scope used for weights importing.
@@ -386,12 +406,16 @@ def ssd_multibox_layer(inputs,
 
     # Location.
     num_loc_pred = num_anchors * 4
-    loc_pred = slim.conv2d(net, num_loc_pred, [3, 3], scope='conv_loc')
+    loc_pred = slim.conv2d(net, num_loc_pred, [3, 3], activation_fn=None,
+                           scope='conv_loc')
+    loc_pred = custom_layers.channel_to_last(loc_pred)
     loc_pred = tf.reshape(loc_pred,
                           tensor_shape(loc_pred, 4)[:-1]+[num_anchors, 4])
     # Class prediction.
     num_cls_pred = num_anchors * num_classes
-    cls_pred = slim.conv2d(net, num_cls_pred, [3, 3], scope='conv_cls')
+    cls_pred = slim.conv2d(net, num_cls_pred, [3, 3], activation_fn=None,
+                           scope='conv_cls')
+    cls_pred = custom_layers.channel_to_last(cls_pred)
     cls_pred = tf.reshape(cls_pred,
                           tensor_shape(cls_pred, 4)[:-1]+[num_anchors, num_classes])
     return cls_pred, loc_pred
@@ -410,6 +434,9 @@ def ssd_net(inputs,
             scope='ssd_300_vgg'):
     """SSD net definition.
     """
+    # if data_format == 'NCHW':
+    #     inputs = tf.transpose(inputs, perm=(0, 3, 1, 2))
+
     # End_points collect relevant activations for external use.
     end_points = {}
     with tf.variable_scope(scope, 'ssd_300_vgg', [inputs], reuse=reuse):
@@ -432,7 +459,7 @@ def ssd_net(inputs,
         # Block 5.
         net = slim.repeat(net, 3, slim.conv2d, 512, [3, 3], scope='conv5')
         end_points['block5'] = net
-        net = slim.max_pool2d(net, [3, 3], 1, scope='pool5')
+        net = slim.max_pool2d(net, [3, 3], stride=1, scope='pool5')
 
         # Additional SSD blocks.
         # Block 6: let's dilate the hell out of it!
@@ -446,12 +473,16 @@ def ssd_net(inputs,
         end_point = 'block8'
         with tf.variable_scope(end_point):
             net = slim.conv2d(net, 256, [1, 1], scope='conv1x1')
-            net = slim.conv2d(net, 512, [3, 3], stride=2, scope='conv3x3')
+            net = custom_layers.pad2d(net, pad=(1, 1))
+            net = slim.conv2d(net, 512, [3, 3], stride=2, scope='conv3x3',
+                              padding='VALID')
         end_points[end_point] = net
         end_point = 'block9'
         with tf.variable_scope(end_point):
             net = slim.conv2d(net, 128, [1, 1], scope='conv1x1')
-            net = slim.conv2d(net, 256, [3, 3], stride=2, scope='conv3x3')
+            net = custom_layers.pad2d(net, pad=(1, 1))
+            net = slim.conv2d(net, 256, [3, 3], stride=2, scope='conv3x3',
+                              padding='VALID')
         end_points[end_point] = net
         end_point = 'block10'
         with tf.variable_scope(end_point):
@@ -483,7 +514,7 @@ def ssd_net(inputs,
 ssd_net.default_image_size = 300
 
 
-def ssd_arg_scope(weight_decay=0.0005):
+def ssd_arg_scope(weight_decay=0.0005, data_format='NHWC'):
     """Defines the VGG arg scope.
 
     Args:
@@ -498,8 +529,13 @@ def ssd_arg_scope(weight_decay=0.0005):
                         weights_initializer=tf.contrib.layers.xavier_initializer(),
                         biases_initializer=tf.zeros_initializer()):
         with slim.arg_scope([slim.conv2d, slim.max_pool2d],
-                            padding='SAME') as sc:
-            return sc
+                            padding='SAME',
+                            data_format=data_format):
+            with slim.arg_scope([custom_layers.pad2d,
+                                 custom_layers.l2_normalization,
+                                 custom_layers.channel_to_last],
+                                data_format=data_format) as sc:
+                return sc
 
 
 # =========================================================================== #

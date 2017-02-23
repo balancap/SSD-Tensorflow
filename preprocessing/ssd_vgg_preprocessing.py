@@ -229,7 +229,8 @@ def distorted_bounding_box_crop(image,
         return cropped_image, labels, bboxes, distort_bbox
 
 
-def preprocess_for_train(image, labels, bboxes, out_shape,
+def preprocess_for_train(image, labels, bboxes,
+                         out_shape, data_format='NHWC',
                          scope='ssd_preprocessing_train'):
     """Preprocesses the given image for training.
 
@@ -286,10 +287,14 @@ def preprocess_for_train(image, labels, bboxes, out_shape,
         # Rescale to VGG input scale.
         image = dst_image * 255.
         image = tf_image_whitened(image, [_R_MEAN, _G_MEAN, _B_MEAN])
+        # Image data format.
+        if data_format == 'NCHW':
+            image = tf.transpose(image, perm=(2, 0, 1))
         return image, labels, bboxes
 
 
-def preprocess_for_eval(image, labels, bboxes, out_shape=EVAL_SIZE,
+def preprocess_for_eval(image, labels, bboxes,
+                        out_shape=EVAL_SIZE, data_format='NHWC',
                         difficults=None, resize=Resize.WARP_RESIZE,
                         scope='ssd_preprocessing_train'):
     """Preprocess an image for evaluation.
@@ -352,6 +357,9 @@ def preprocess_for_eval(image, labels, bboxes, out_shape=EVAL_SIZE,
             mask = tf.logical_not(tf.cast(difficults, tf.bool))
             labels = tf.boolean_mask(labels, mask)
             bboxes = tf.boolean_mask(bboxes, mask)
+        # Image data format.
+        if data_format == 'NCHW':
+            image = tf.transpose(image, perm=(2, 0, 1))
         return image, labels, bboxes, bbox_img
 
 
@@ -359,6 +367,7 @@ def preprocess_image(image,
                      labels,
                      bboxes,
                      out_shape,
+                     data_format,
                      is_training=False,
                      **kwargs):
     """Pre-process an given image.

@@ -51,7 +51,9 @@ def get_preprocessing(name, is_training=False):
     if name not in preprocessing_fn_map:
         raise ValueError('Preprocessing name [%s] was not recognized' % name)
 
-    def preprocessing_fn(image, labels, bboxes, out_shape, **kwargs):
+    def preprocessing_fn(image, labels, bboxes,
+                         out_shape, data_format='NHWC', **kwargs):
         return preprocessing_fn_map[name].preprocess_image(
-            image, labels, bboxes, out_shape, is_training=is_training, **kwargs)
+            image, labels, bboxes, out_shape, data_format,
+            is_training=is_training, **kwargs)
     return preprocessing_fn
