@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 import matplotlib.cm as mpcm
 
+
 # =========================================================================== #
 # Some colormaps.
 # =========================================================================== #
@@ -107,7 +108,7 @@ def plt_bboxes(img, classes, scores, bboxes, figsize=(10,10), linewidth=1.5):
             plt.gca().add_patch(rect)
             class_name = str(cls_id)
             plt.gca().text(xmin, ymin - 2,
-                            '{:s} | {:.3f}'.format(class_name, score),
-                            bbox=dict(facecolor=colors[cls_id], alpha=0.5),
-                            fontsize=12, color='white')
+                           '{:s} | {:.3f}'.format(class_name, score),
+                           bbox=dict(facecolor=colors[cls_id], alpha=0.5),
+                           fontsize=12, color='white')
     plt.show()

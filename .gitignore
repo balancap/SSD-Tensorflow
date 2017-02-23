@@ -16,3 +16,10 @@ logs/
 __pycache__/
 
 *.log
+
+checkpoints/VGG_VOC0712_SSD_300x300_ft_iter_120000.ckpt.data-00000-of-00001
+checkpoints/VGG_VOC0712_SSD_300x300_ft_iter_120000.ckpt.index
+checkpoints/VGG_VOC0712_SSD_300x300_ft_iter_120000.ckpt.zip
+checkpoints/VGG_VOC0712_SSD_300x300_iter_120000.ckpt.data-00000-of-00001
+checkpoints/VGG_VOC0712_SSD_300x300_iter_120000.ckpt.index
+checkpoints/VGG_VOC0712_SSD_300x300_iter_120000.ckpt.zip

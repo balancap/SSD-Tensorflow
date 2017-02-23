@@ -12,9 +12,9 @@ python tf_convert_data.py \
     --output_name=voc_2012_train \
     --output_dir=${OUTPUT_DIR}
 
-CAFFE_MODEL=/media/paul/DataExt4/PascalVOC/training/ckpts/SSD_300x300_ft_VOC0712/VGG_VOC0712_SSD_300x300_ft_iter_120000.caffemodel
+CAFFE_MODEL=/media/paul/DataExt4/PascalVOC/training/ckpts/SSD_300x300_VOC0712/VGG_VOC0712_SSD_300x300_iter_120000.caffemodel
 python caffe_to_tensorflow.py \
-    --model_name=ssd_300_vgg_voc0712 \
+    --model_name=ssd_300_vgg \
     --num_classes=21 \
     --caffemodel_path=${CAFFE_MODEL}
 
@@ -40,8 +40,11 @@ python train_ssd_network.py \
     --learning_rate_decay_factor=0.95 \
     --batch_size=32
 
+DATASET_DIR=/media/paul/DataExt4/PascalVOC/dataset
 EVAL_DIR=./logs/ssd_300_vgg_1_eval
-CHECKPOINT_PATH=./checkpoints/ssd_300_vgg_voc0712.ckpt
+CHECKPOINT_PATH=./checkpoints/ssd_300_vgg.ckpt
+CHECKPOINT_PATH=./checkpoints/VGG_VOC0712_SSD_300x300_iter_120000.ckpt
+CHECKPOINT_PATH=./checkpoints/VGG_VOC0712_SSD_300x300_ft_iter_120000.ckpt
 python eval_ssd_network.py \
     --eval_dir=${EVAL_DIR} \
     --dataset_dir=${DATASET_DIR} \

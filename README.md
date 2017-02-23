@@ -37,15 +37,15 @@ The present TensorFlow implementation of SSD models have the following performan
 
 | Model | Training data  | Testing data | mAP | FPS  |
 |--------|:---------:|:------:|:------:|:------:|
-| SSD-300 VGG-based | VOC07+12 trainval | VOC07 test | 0.717 | - |
-| SSD-512 VGG-based | VOC07+12 trainval | - | - | - |
+| [SSD-300 VGG-based](https://drive.google.com/file/d/0B0qPCUZ-3YwWUXh4UHJrd1RDM3c/view?usp=sharing) | VOC07+12+COCO trainval | VOC07 test | 0.77 | - |
+| SSD-512 VGG-based | VOC07+12+COCO trainval | VOC07 test | - | - |
 
 We are working hard at reproducing the same performance as the original [Caffe implementation](https://github.com/weiliu89/caffe/tree/ssd)!
 
-The previous evaluation metrics should be reproducible by running the following command:
+After downloading and extracting the previous checkpoints, the evaluation metrics should be reproducible by running the following command:
 ```bash
 EVAL_DIR=./logs/
-CHECKPOINT_PATH=./checkpoints/ssd_300_vgg.ckpt
+CHECKPOINT_PATH=./checkpoints/VGG_VOC0712_SSD_300x300_ft_iter_120000.ckpt
 python eval_ssd_network.py \
     --eval_dir=${EVAL_DIR} \
     --dataset_dir=${DATASET_DIR} \
@@ -55,7 +55,7 @@ python eval_ssd_network.py \
     --checkpoint_path=${CHECKPOINT_PATH} \
     --batch_size=1
 ```
-The evaluation script provides estimates on the recall-precision curve and compute the mAP metrics following the Pascal VOC 2007 and 2012 guidelines. 
+The evaluation script provides estimates on the recall-precision curve and compute the mAP metrics following the Pascal VOC 2007 and 2012 guidelines.
 
 In addition, if one wants to experiment/test a different Caffe SSD checkpoint, the former can be converted to TensorFlow checkpoints as following:
 ```sh
@@ -89,6 +89,6 @@ python train_ssd_network.py \
 ```
 One can also specify the scopes of variables to load or ignore from a checkpoint. It is particularly useful to fine-tune a model using weights from the original base network (VGG, ResNets, Inception, ...).
 
-In addition to the script flags, one may also want to experiment with data augmentation (random cropping, resolution, ...) or/and network parameters (feature layers, anchors boxes, ...). 
+In addition to the script flags, one may also want to experiment with data augmentation (random cropping, resolution, ...) or/and network parameters (feature layers, anchors boxes, ...).
 
-The training script can be combined with the previous evaluation one in order to monitor the performance of saved checkpoints on a validation dataset. For that purpose, one can pass to training and validation scripts a GPU memory upper limit such that both can run in parallel on the same device. 
+The training script can be combined with the previous evaluation one in order to monitor the performance of saved checkpoints on a validation dataset. For that purpose, one can pass to training and validation scripts a GPU memory upper limit such that both can run in parallel on the same device.
