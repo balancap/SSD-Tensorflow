@@ -35,13 +35,13 @@ slim = tf.contrib.slim
 # List of recalls values at which precision is evaluated.
 LIST_RECALLS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.85,
                 0.90, 0.95, 0.96, 0.97, 0.98, 0.99]
-DATA_FORMAT = 'NCHW'
+DATA_FORMAT = 'NHWC'
 
 # =========================================================================== #
 # SSD evaluation Flags.
 # =========================================================================== #
 tf.app.flags.DEFINE_integer(
-    'select_threshold', 0.01, 'Selection threshold.')
+    'select_threshold', 0.1, 'Selection threshold.')
 tf.app.flags.DEFINE_integer(
     'select_top_k', 400, 'Select top-k detected objects.')
 tf.app.flags.DEFINE_integer(
@@ -91,6 +91,9 @@ tf.app.flags.DEFINE_float(
     'moving_average_decay', None,
     'The decay to use for the moving average.'
     'If left as None, then moving averages are not used.')
+tf.app.flags.DEFINE_integer(
+    'gpu_memory_fraction', 0.1, 'GPU memory fraction to use.')
+
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -264,9 +267,8 @@ def main(_):
         # =================================================================== #
         # Evaluation loop.
         # =================================================================== #
-        gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.2)
-        config = tf.ConfigProto(log_device_placement=False,
-                                gpu_options=gpu_options)
+        gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=FLAGS.gpu_memory_fraction)
+        config = tf.ConfigProto(log_device_placement=False, gpu_options=gpu_options)
         # Number of batches...
         if FLAGS.max_num_batches:
             num_batches = FLAGS.max_num_batches

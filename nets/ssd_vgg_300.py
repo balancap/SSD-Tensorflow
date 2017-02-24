@@ -204,25 +204,24 @@ class SSDNet(object):
 
     def detected_bboxes(self, predictions, localisations,
                         select_threshold=None, nms_threshold=0.5,
-                        clipping_bbox=None, top_k=400):
+                        clipping_bbox=None, top_k=400, keep_top_k=200):
         """Get the detected bounding boxes from the SSD network output.
         """
         # Select top_k bboxes from predictions, and clip
-        rclasses, rscores, rbboxes = \
+        rscores, rbboxes = \
             ssd_common.tf_ssd_bboxes_select(predictions, localisations,
-                                            select_threshold=select_threshold)
-        rclasses, rscores, rbboxes = \
-            tfe.bboxes_sort(rclasses, rscores, rbboxes, top_k=top_k)
-        if clipping_bbox is not None:
-            rbboxes = tfe.bboxes_clip(clipping_bbox, rbboxes)
+                                            select_threshold=select_threshold,
+                                            num_classes=self.params.num_classes)
+        rscores, rbboxes = \
+            tfe.bboxes_sort_per_class(rscores, rbboxes, top_k=top_k)
         # Apply NMS algorithm.
         rclasses, rscores, rbboxes = \
-            tfe.bboxes_nms_batch(rclasses, rscores, rbboxes,
+            tfe.bboxes_nms_batch(rscores, rbboxes,
                                  nms_threshold=nms_threshold,
+                                 keep_top_k=keep_top_k,
                                  num_classes=self.params.num_classes)
-        rclasses, rscores, rbboxes = \
-            tfe.bboxes_sort(rclasses, rscores, rbboxes,
-                            top_k=tf.minimum(200, tf.shape(rclasses)[1]))
+        # if clipping_bbox is not None:
+        #     rbboxes = tfe.bboxes_clip(clipping_bbox, rbboxes)
         return rclasses, rscores, rbboxes
 
     def losses(self, logits, localisations,

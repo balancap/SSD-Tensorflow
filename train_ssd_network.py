@@ -48,6 +48,8 @@ tf.app.flags.DEFINE_integer(
 tf.app.flags.DEFINE_integer(
     'save_interval_secs', 600,
     'The frequency with which the model is saved, in seconds.')
+tf.app.flags.DEFINE_integer(
+    'gpu_memory_fraction', 0.8, 'GPU memory fraction to use.')
 
 # =========================================================================== #
 # Optimization Flags.
@@ -335,7 +337,8 @@ def main(_):
         # =================================================================== #
         # Kicks off the training.
         # =================================================================== #
-        config = tf.ConfigProto(log_device_placement=False)
+        gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=FLAGS.gpu_memory_fraction)
+        config = tf.ConfigProto(log_device_placement=False, gpu_options=gpu_options)
         saver = tf.train.Saver(max_to_keep=5,
                                keep_checkpoint_every_n_hours=1.0,
                                write_version=2,

@@ -24,8 +24,9 @@ from tf_extended import math as tfe_math
 # =========================================================================== #
 # Standard boxes algorithms.
 # =========================================================================== #
-def bboxes_sort(classes, scores, bboxes, top_k=400, scope=None):
+def bboxes_sort_all_classes(classes, scores, bboxes, top_k=400, scope=None):
     """Sort bounding boxes by decreasing order and keep only the top_k.
+    Assume the input Tensors mix-up objects with different classes.
     Assume a batch-type input.
 
     Args:
@@ -54,6 +55,45 @@ def bboxes_sort(classes, scores, bboxes, top_k=400, scope=None):
         classes = r[0]
         bboxes = r[1]
         return classes, scores, bboxes
+
+
+def bboxes_sort_per_class(scores, bboxes, top_k=400, scope=None):
+    """Sort bounding boxes by decreasing order and keep only the top_k.
+    Assume the input Tensor have a class dimension.
+    Assume a batch-type input.
+
+    Args:
+      scores: Batch x N_classes-1 x N Tensor containing float scores.
+      bboxes: Batch x N_classes-1 x N x 4 Tensor containing boxes coordinates.
+      top_k: Top_k boxes to keep.
+    Return:
+      scores, bboxes: Sorted tensors of shape Batch x N_classes-1 x Top_k.
+    """
+    with tf.name_scope(scope, 'bboxes_sort_per_class', [scores, bboxes]):
+        # Reshape to ease the sorting...
+        shape = tfe_tensors.get_shape(scores)
+        scores = tf.reshape(scores, [-1, shape[-1]])
+        bboxes = tf.reshape(bboxes, [-1, shape[-1], 4])
+
+        # Sort scores...
+        scores, idxes = tf.nn.top_k(scores, k=top_k, sorted=True)
+
+        # Trick to be able to use tf.gather: map for each element in the first dim.
+        def fn_gather(bboxes, idxes):
+            bb = tf.gather(bboxes, idxes)
+            return [bb]
+        r = tf.map_fn(lambda x: fn_gather(x[0], x[1]),
+                      [bboxes, idxes],
+                      dtype=[bboxes.dtype],
+                      parallel_iterations=10,
+                      back_prop=False,
+                      swap_memory=False,
+                      infer_shape=True)
+        bboxes = r[0]
+        # Back to original shape...
+        scores = tf.reshape(scores, [shape[0], shape[1], top_k])
+        bboxes = tf.reshape(bboxes, [shape[0], shape[1], top_k, 4])
+        return scores, bboxes
 
 
 def bboxes_clip(bbox_ref, bboxes, scope=None):
@@ -98,102 +138,91 @@ def bboxes_resize(bbox_ref, bboxes, name=None):
         return bboxes
 
 
-def bboxes_nms(classes, scores, bboxes,
-               nms_threshold=0.5, num_classes=21, pad_output=True, scope=None):
+def bboxes_nms(scores, bboxes, nms_threshold=0.5, keep_top_k=200,
+               num_classes=21, cdtype=tf.int64, scope=None):
     """Apply non-maximum selection to bounding boxes. In comparison to TF
     implementation, use classes information for matching.
     Should only be used on single-entries. Use batch version otherwise.
 
     Args:
-      classes, scores, bboxes: N (or Nx4) input Tensors;
+      scores: N_classes-1 x N Tensor containing float scores.
+      bboxes: N_classes-1 x N x 4 Tensor containing boxes coordinates.
       nms_threshold: Matching threshold in NMS algorithm;
+      keep_top_k: Number of total object to keep after NMS.
       num_classes: Number of classes in the dataset;
-      pad_output: Pad output to input size. Useful for batching.
     Return:
       classes, scores, bboxes Tensors, sorted by score.
         Padded with zero if necessary.
     """
-    with tf.name_scope(scope, 'bboxes_nms_single'):
-        max_output_size = tfe_tensors.get_shape(classes)[-1]
+    with tf.name_scope(scope, 'bboxes_nms_single', [scores, bboxes]):
         l_classes = []
         l_scores = []
         l_bboxes = []
         # Apply NMS algorithm on every class.
-        for i in range(1, num_classes):
-            mask = tf.equal(classes, i)
-            sub_scores = tf.boolean_mask(scores, mask)
-            sub_bboxes = tf.boolean_mask(bboxes, mask)
-            sub_classes = tf.boolean_mask(classes, mask)
+        for c in range(1, num_classes):
+            sub_scores = scores[c-1]
+            sub_bboxes = bboxes[c-1]
             idxes = tf.image.non_max_suppression(sub_bboxes, sub_scores,
-                                                 max_output_size, nms_threshold)
-            l_classes.append(tf.gather(sub_classes, idxes))
+                                                 keep_top_k, nms_threshold)
+            l_classes.append(tf.zeros(tf.shape(idxes), cdtype) + c)
             l_scores.append(tf.gather(sub_scores, idxes))
             l_bboxes.append(tf.gather(sub_bboxes, idxes))
         # Concat results.
         classes = tf.concat(tf.tuple(l_classes), axis=0)
         scores = tf.concat(tf.tuple(l_scores), axis=0)
         bboxes = tf.concat(tf.tuple(l_bboxes), axis=0)
-        # Sort by the final results by score.
-        scores, idxes = tf.nn.top_k(scores, k=tf.size(scores), sorted=True)
+        # Sort the final results by score.
+        scores, idxes = tf.nn.top_k(scores, k=keep_top_k, sorted=True)
         classes = tf.gather(classes, idxes)
         bboxes = tf.gather(bboxes, idxes)
-        # Pad outputs to initial size. Necessary if use for in batches...
-        if pad_output:
-            classes = tfe_tensors.pad_axis(classes, 0, max_output_size, axis=0)
-            scores = tfe_tensors.pad_axis(scores, 0, max_output_size, axis=0)
-            bboxes = tfe_tensors.pad_axis(bboxes, 0, max_output_size, axis=0)
         return classes, scores, bboxes
 
 
-def bboxes_fast_nms(classes, scores, bboxes,
-                    nms_threshold=0.5, eta=3., num_classes=21,
-                    pad_output=True, scope=None):
-    with tf.name_scope(scope, 'bboxes_fast_nms',
-                       [classes, scores, bboxes]):
-
-        nms_classes = tf.zeros((0,), dtype=classes.dtype)
-        nms_scores = tf.zeros((0,), dtype=scores.dtype)
-        nms_bboxes = tf.zeros((0, 4), dtype=bboxes.dtype)
-
-
-
-
-
-def bboxes_nms_batch(classes, scores, bboxes,
-                     nms_threshold=0.5, num_classes=21, scope=None):
+def bboxes_nms_batch(scores, bboxes, nms_threshold=0.5, keep_top_k=200,
+                     num_classes=21, cdtype=tf.int64, scope=None):
     """Apply non-maximum selection to bounding boxes. In comparison to TF
     implementation, use classes information for matching.
     Use only on batched-inputs. Use zero-padding in order to batch output
     results.
 
     Args:
-      classes, scores, bboxes: Batch x N (or BxNx4) input Tensors;
+      scores: Batch x N_classes-1 x N Tensor containing float scores.
+      bboxes: Batch x N_classes-1 x N x 4 Tensor containing boxes coordinates.
       nms_threshold: Matching threshold in NMS algorithm;
+      keep_top_k: Number of total object to keep after NMS.
       num_classes: Number of classes in the dataset;
     Return:
       classes, scores, bboxes Tensors, sorted by score.
         Padded with zero if necessary.
     """
     with tf.name_scope(scope, 'bboxes_nms_batch'):
-        shape = classes.get_shape().with_rank(2).as_list()
-        pad_output = shape[0] != 1
-        r = tf.map_fn(lambda x: bboxes_nms(x[0], x[1], x[2],
-                                           nms_threshold, num_classes,
-                                           pad_output=pad_output),
-                      (classes, scores, bboxes),
-                      dtype=None,
+        r = tf.map_fn(lambda x: bboxes_nms(x[0], x[1], nms_threshold,
+                                           keep_top_k, num_classes, cdtype),
+                      (scores, bboxes),
+                      dtype=(cdtype, scores.dtype, bboxes.dtype),
                       parallel_iterations=10,
                       back_prop=False,
                       swap_memory=False,
                       infer_shape=True)
         classes, scores, bboxes = r
+
         # Clean unnecessary zero-padding from outputs.
-        if pad_output:
-            mask = tf.greater(tf.reduce_sum(classes, axis=1), 0)
-            classes = tf.boolean_mask(classes, mask)
-            scores = tf.boolean_mask(scores, mask)
-            bboxes = tf.boolean_mask(bboxes, mask)
+        mask = tf.greater(tf.reduce_sum(classes, axis=1), 0)
+        classes = tf.boolean_mask(classes, mask)
+        scores = tf.boolean_mask(scores, mask)
+        bboxes = tf.boolean_mask(bboxes, mask)
         return classes, scores, bboxes
+
+
+# def bboxes_fast_nms(classes, scores, bboxes,
+#                     nms_threshold=0.5, eta=3., num_classes=21,
+#                     pad_output=True, scope=None):
+#     with tf.name_scope(scope, 'bboxes_fast_nms',
+#                        [classes, scores, bboxes]):
+
+#         nms_classes = tf.zeros((0,), dtype=classes.dtype)
+#         nms_scores = tf.zeros((0,), dtype=scores.dtype)
+#         nms_bboxes = tf.zeros((0, 4), dtype=bboxes.dtype)
 
 
 def bboxes_matching(rclasses, rscores, rbboxes,

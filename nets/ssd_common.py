@@ -250,18 +250,93 @@ def tf_ssd_bboxes_decode(feat_localizations,
 
 
 def tf_ssd_bboxes_select_layer(predictions_layer, localizations_layer,
-                               select_threshold=None):
+                               select_threshold=None,
+                               num_classes=21,
+                               scope=None):
     """Extract classes, scores and bounding boxes from features in one layer.
     Batch-compatible: inputs are supposed to have batch-type shapes.
 
     Args:
       predictions_layer: A SSD prediction layer;
       localizations_layer: A SSD localization layer;
+      select_threshold: Classification threshold for selecting a box. All boxes
+        under the threshold are set to 'zero'. If None, no threshold applied.
+    Return:
+      scores, bboxes: Output tensors of size Batches x N_Classes-1 X N x 1 | 4
+    """
+    select_threshold = 0.0 if select_threshold is None else select_threshold
+    with tf.name_scope(scope, 'ssd_bboxes_select_layer',
+                       [predictions_layer, localizations_layer]):
+        # Reshape features: Batches x N x N_labels | 4
+        p_shape = tfe.get_shape(predictions_layer)
+        predictions_layer = tf.reshape(predictions_layer,
+                                       tf.stack([p_shape[0], -1, p_shape[-1]]))
+        l_shape = tfe.get_shape(localizations_layer)
+        localizations_layer = tf.reshape(localizations_layer,
+                                         tf.stack([l_shape[0], -1, l_shape[-1]]))
+
+        l_scores = []
+        l_bboxes = []
+        for c in range(1, num_classes):
+            # Remove boxes under the threshold.
+            scores = predictions_layer[:, :, c]
+            mask = tf.greater_equal(scores, select_threshold)
+            scores = scores * tf.cast(mask, scores.dtype)
+            bboxes = localizations_layer * tf.expand_dims(tf.cast(mask, localizations_layer.dtype),
+                                                          axis=-1)
+            l_scores.append(scores)
+            l_bboxes.append(bboxes)
+
+        scores = tf.stack(l_scores, axis=1)
+        bboxes = tf.stack(l_bboxes, axis=1)
+        return scores, bboxes
+
+
+def tf_ssd_bboxes_select(predictions_net, localizations_net,
+                         select_threshold=None,
+                         num_classes=21,
+                         scope=None):
+    """Extract classes, scores and bounding boxes from network output layers.
+    Batch-compatible: inputs are supposed to have batch-type shapes.
+
+    Args:
+      predictions_net: List of SSD prediction layers;
+      localizations_net: List of localization layers;
+      select_threshold: Classification threshold for selecting a box. All boxes
+        under the threshold are set to 'zero'. If None, no threshold applied.
+    Return:
+       scores, bboxes: Output tensors of size Batches x N_Classes-1 X N x 1 | 4
+    """
+    with tf.name_scope(scope, 'ssd_bboxes_select',
+                       [predictions_net, localizations_net]):
+        l_scores = []
+        l_bboxes = []
+        for i in range(len(predictions_net)):
+            scores, bboxes = tf_ssd_bboxes_select_layer(predictions_net[i],
+                                                        localizations_net[i],
+                                                        select_threshold,
+                                                        num_classes)
+            l_scores.append(scores)
+            l_bboxes.append(bboxes)
+
+        scores = tf.concat(l_scores, axis=2)
+        bboxes = tf.concat(l_bboxes, axis=2)
+        return scores, bboxes
+
+
+def tf_ssd_bboxes_select_layer_all_classes(predictions_layer, localizations_layer,
+                                           select_threshold=None):
+    """Extract classes, scores and bounding boxes from features in one layer.
+     Batch-compatible: inputs are supposed to have batch-type shapes.
+
+     Args:
+       predictions_layer: A SSD prediction layer;
+       localizations_layer: A SSD localization layer;
       select_threshold: Classification threshold for selecting a box. If None,
         select boxes whose classification score is higher than 'no class'.
-    Return:
+     Return:
       classes, scores, bboxes: Input Tensors.
-    """
+     """
     # Reshape features: Batches x N x N_labels | 4
     p_shape = tfe.get_shape(predictions_layer)
     predictions_layer = tf.reshape(predictions_layer,
@@ -288,9 +363,9 @@ def tf_ssd_bboxes_select_layer(predictions_layer, localizations_layer,
     return classes, scores, bboxes
 
 
-def tf_ssd_bboxes_select(predictions_net, localizations_net,
-                         select_threshold=None,
-                         scope=None):
+def tf_ssd_bboxes_select_all_classes(predictions_net, localizations_net,
+                                     select_threshold=None,
+                                     scope=None):
     """Extract classes, scores and bounding boxes from network output layers.
     Batch-compatible: inputs are supposed to have batch-type shapes.
 
@@ -308,9 +383,10 @@ def tf_ssd_bboxes_select(predictions_net, localizations_net,
         l_scores = []
         l_bboxes = []
         for i in range(len(predictions_net)):
-            classes, scores, bboxes = tf_ssd_bboxes_select_layer(predictions_net[i],
-                                                                 localizations_net[i],
-                                                                 select_threshold)
+            classes, scores, bboxes = \
+                tf_ssd_bboxes_select_layer_all_classes(predictions_net[i],
+                                                       localizations_net[i],
+                                                       select_threshold)
             l_classes.append(classes)
             l_scores.append(scores)
             l_bboxes.append(bboxes)

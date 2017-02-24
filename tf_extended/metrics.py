@@ -177,6 +177,12 @@ def streaming_precision_recall_arrays(n_gbboxes, rclasses, rscores,
             update_op = _precision_recall(nobjects_op, ndetections_op,
                                           scores_op, tp_op, fp_op, 'update_op')
 
+            # update_op = tf.Print(update_op,
+            #                      [tf.reduce_sum(tf.cast(mask, tf.int64)),
+            #                       tf.reduce_sum(tf.cast(mask2, tf.int64)),
+            #                       tf.reduce_min(rscores),
+            #                       tf.reduce_sum(n_gbboxes)],
+            #                      'Metric: ')
             # Some debugging stuff!
             # update_op = tf.Print(update_op,
             #                      [tf.shape(tp_op),
