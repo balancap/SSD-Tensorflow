@@ -34,8 +34,10 @@ from collections import namedtuple
 import numpy as np
 import tensorflow as tf
 
+import tf_extended as tfe
 from nets import custom_layers
 from nets import ssd_common
+from nets import ssd_vgg_300
 
 slim = tf.contrib.slim
 
@@ -45,6 +47,7 @@ slim = tf.contrib.slim
 # =========================================================================== #
 SSDParams = namedtuple('SSDParameters', ['img_shape',
                                          'num_classes',
+                                         'no_annotation_label',
                                          'feat_layers',
                                          'feat_shapes',
                                          'anchor_size_bounds',
@@ -73,6 +76,7 @@ class SSDNet(object):
     default_params = SSDParams(
         img_shape=(512, 512),
         num_classes=21,
+        no_annotation_label=21,
         feat_layers=['block4', 'block7', 'block8', 'block9', 'block10', 'block11', 'block12'],
         feat_shapes=[(64, 64), (32, 32), (16, 16), (8, 8), (4, 4), (2, 2), (1, 1)],
         anchor_size_bounds=[0.10, 0.90],
@@ -132,10 +136,10 @@ class SSDNet(object):
             self.params = self.params._replace(feat_shapes=shapes)
         return r
 
-    def arg_scope(self, weight_decay=0.0005):
+    def arg_scope(self, weight_decay=0.0005, data_format='NHWC'):
         """Network arg_scope.
         """
-        return ssd_arg_scope(weight_decay)
+        return ssd_arg_scope(weight_decay, data_format=data_format)
 
     def arg_scope_caffe(self, caffe_scope):
         """Caffe arg_scope used for weights importing.
@@ -155,12 +159,14 @@ class SSDNet(object):
                                       dtype)
 
     def bboxes_encode(self, labels, bboxes, anchors,
-                      scope='ssd_bboxes_encode'):
+                      scope=None):
         """Encode labels and bounding boxes.
         """
         return ssd_common.tf_ssd_bboxes_encode(
             labels, bboxes, anchors,
-            matching_threshold=0.5,
+            self.params.num_classes,
+            self.params.no_annotation_label,
+            ignore_threshold=0.5,
             prior_scaling=self.params.prior_scaling,
             scope=scope)
 
@@ -173,16 +179,41 @@ class SSDNet(object):
             prior_scaling=self.params.prior_scaling,
             scope=scope)
 
+    def detected_bboxes(self, predictions, localisations,
+                        select_threshold=None, nms_threshold=0.5,
+                        clipping_bbox=None, top_k=400, keep_top_k=200):
+        """Get the detected bounding boxes from the SSD network output.
+        """
+        # Select top_k bboxes from predictions, and clip
+        rscores, rbboxes = \
+            ssd_common.tf_ssd_bboxes_select(predictions, localisations,
+                                            select_threshold=select_threshold,
+                                            num_classes=self.params.num_classes)
+        rscores, rbboxes = \
+            tfe.bboxes_sort_per_class(rscores, rbboxes, top_k=top_k)
+        # Apply NMS algorithm.
+        rclasses, rscores, rbboxes = \
+            tfe.bboxes_nms_batch(rscores, rbboxes,
+                                 nms_threshold=nms_threshold,
+                                 keep_top_k=keep_top_k,
+                                 num_classes=self.params.num_classes)
+        # if clipping_bbox is not None:
+        #     rbboxes = tfe.bboxes_clip(clipping_bbox, rbboxes)
+        return rclasses, rscores, rbboxes
+
     def losses(self, logits, localisations,
                gclasses, glocalisations, gscores,
                label_smoothing=0.,
                scope='ssd_losses'):
         """Define the SSD network losses.
         """
-        ssd_losses(logits, localisations,
-                   gclasses, glocalisations, gscores,
-                   label_smoothing,
-                   scope=scope)
+        return ssd_losses(logits, localisations,
+                          gclasses, glocalisations, gscores,
+                          match_threshold=0.5,
+                          negative_ratio=3.,
+                          alpha=1.,
+                          label_smoothing=label_smoothing,
+                          scope=scope)
 
 
 # =========================================================================== #
@@ -328,35 +359,6 @@ def ssd_anchors_all_layers(img_shape,
 # =========================================================================== #
 # Functional definition of VGG-based SSD 512.
 # =========================================================================== #
-def ssd_multibox_layer(inputs,
-                       num_classes,
-                       sizes,
-                       ratios=[1],
-                       normalization=-1,
-                       bn_normalization=False):
-    """Construct a multibox layer, return a class and localization predictions.
-    """
-    net = inputs
-    if normalization > 0:
-        net = custom_layers.l2_normalization(net, scaling=True)
-    # Number of anchors.
-    num_anchors = len(sizes) + len(ratios)
-
-    # Location.
-    num_loc_pred = num_anchors * 4
-    loc_pred = slim.conv2d(net, num_loc_pred, [3, 3], scope='conv_loc')
-    loc_pred = tf.reshape(loc_pred, tf.concat([loc_pred.get_shape()[:-1],
-                                               [num_anchors],
-                                               [4]]), axis=0)
-    # Class prediction.
-    num_cls_pred = num_anchors * num_classes
-    cls_pred = slim.conv2d(net, num_cls_pred, [3, 3], scope='conv_cls')
-    cls_pred = tf.reshape(cls_pred, tf.concat([cls_pred.get_shape()[:-1],
-                                               [num_anchors],
-                                               [num_classes]], axis=0))
-    return cls_pred, loc_pred
-
-
 def ssd_net(inputs,
             num_classes=21,
             feat_layers=SSDNet.default_params.feat_layers,
@@ -406,30 +408,35 @@ def ssd_net(inputs,
         end_point = 'block8'
         with tf.variable_scope(end_point):
             net = slim.conv2d(net, 256, [1, 1], scope='conv1x1')
-            net = slim.conv2d(net, 512, [3, 3], stride=2, scope='conv3x3')
+            net = custom_layers.pad2d(net, pad=(1, 1))
+            net = slim.conv2d(net, 512, [3, 3], stride=2, scope='conv3x3', padding='VALID')
         end_points[end_point] = net
         end_point = 'block9'
         with tf.variable_scope(end_point):
             net = slim.conv2d(net, 128, [1, 1], scope='conv1x1')
-            net = slim.conv2d(net, 256, [3, 3], stride=2, scope='conv3x3')
+            net = custom_layers.pad2d(net, pad=(1, 1))
+            net = slim.conv2d(net, 256, [3, 3], stride=2, scope='conv3x3', padding='VALID')
         end_points[end_point] = net
         end_point = 'block10'
         with tf.variable_scope(end_point):
             net = slim.conv2d(net, 128, [1, 1], scope='conv1x1')
-            net = slim.conv2d(net, 256, [3, 3], stride=2, scope='conv3x3')
+            net = custom_layers.pad2d(net, pad=(1, 1))
+            net = slim.conv2d(net, 256, [3, 3], stride=2, scope='conv3x3', padding='VALID')
         end_points[end_point] = net
         end_point = 'block11'
         with tf.variable_scope(end_point):
             net = slim.conv2d(net, 128, [1, 1], scope='conv1x1')
-            net = slim.conv2d(net, 256, [3, 3], stride=2, scope='conv3x3')
+            net = custom_layers.pad2d(net, pad=(1, 1))
+            net = slim.conv2d(net, 256, [3, 3], stride=2, scope='conv3x3', padding='VALID')
         end_points[end_point] = net
         end_point = 'block12'
         with tf.variable_scope(end_point):
             net = slim.conv2d(net, 128, [1, 1], scope='conv1x1')
-            net = slim.conv2d(net, 256, [4, 4], scope='conv4x4')
+            net = custom_layers.pad2d(net, pad=(1, 1))
+            net = slim.conv2d(net, 256, [4, 4], scope='conv4x4', padding='VALID')
             # Fix padding to match Caffe version (pad=1).
-            pad_shape = [(i-j) for i, j in zip(layer_shape(net), [0, 1, 1, 0])]
-            net = tf.slice(net, [0, 0, 0, 0], pad_shape, name='caffe_pad')
+            # pad_shape = [(i-j) for i, j in zip(layer_shape(net), [0, 1, 1, 0])]
+            # net = tf.slice(net, [0, 0, 0, 0], pad_shape, name='caffe_pad')
         end_points[end_point] = net
 
         # Prediction and localisations layers.
@@ -438,11 +445,11 @@ def ssd_net(inputs,
         localisations = []
         for i, layer in enumerate(feat_layers):
             with tf.variable_scope(layer + '_box'):
-                p, l = ssd_multibox_layer(end_points[layer],
-                                          num_classes,
-                                          anchor_sizes[i],
-                                          anchor_ratios[i],
-                                          normalizations[i])
+                p, l = ssd_vgg_300.ssd_multibox_layer(end_points[layer],
+                                                      num_classes,
+                                                      anchor_sizes[i],
+                                                      anchor_ratios[i],
+                                                      normalizations[i])
             predictions.append(prediction_fn(p))
             logits.append(p)
             localisations.append(l)
@@ -451,7 +458,7 @@ def ssd_net(inputs,
 ssd_net.default_image_size = 512
 
 
-def ssd_arg_scope(weight_decay=0.0005):
+def ssd_arg_scope(weight_decay=0.0005, data_format='NHWC'):
     """Defines the VGG arg scope.
 
     Args:
@@ -464,10 +471,15 @@ def ssd_arg_scope(weight_decay=0.0005):
                         activation_fn=tf.nn.relu,
                         weights_regularizer=slim.l2_regularizer(weight_decay),
                         weights_initializer=tf.contrib.layers.xavier_initializer(),
-                        biases_initializer=tf.zeros_initializer):
+                        biases_initializer=tf.zeros_initializer()):
         with slim.arg_scope([slim.conv2d, slim.max_pool2d],
-                            padding='SAME') as sc:
-            return sc
+                            padding='SAME',
+                            data_format=data_format):
+            with slim.arg_scope([custom_layers.pad2d,
+                                 custom_layers.l2_normalization,
+                                 custom_layers.channel_to_last],
+                                data_format=data_format) as sc:
+                return sc
 
 
 # =========================================================================== #
@@ -505,8 +517,8 @@ def ssd_losses(logits, localisations,
                negative_ratio=3.,
                alpha=1.,
                label_smoothing=0.,
-               scope='ssd_losses'):
-    """Loss functions for training the SSD 512 VGG network.
+               scope=None):
+    """Loss functions for training the SSD 300 VGG network.
 
     This function defines the different loss components of the SSD, and
     adds them to the TF loss collection.
@@ -518,48 +530,76 @@ def ssd_losses(logits, localisations,
       glocalisations: (list of) groundtruth localisations Tensors;
       gscores: (list of) groundtruth score Tensors;
     """
-    # Some debugging...
-    # for i in range(len(gclasses)):
-    #     print(localisations[i].get_shape())
-    #     print(logits[i].get_shape())
-    #     print(gclasses[i].get_shape())
-    #     print(glocalisations[i].get_shape())
-    #     print()
-    with tf.name_scope(scope):
-        l_cross = []
+    with tf.name_scope(scope, 'ssd_losses'):
+        l_cross_pos = []
+        l_cross_neg = []
         l_loc = []
         for i in range(len(logits)):
+            dtype = logits[i].dtype
             with tf.name_scope('block_%i' % i):
                 # Determine weights Tensor.
-                pmask = tf.cast(gclasses[i] > 0, logits[i].dtype)
-                n_positives = tf.reduce_sum(pmask)
-                n_entries = np.prod(gclasses[i].get_shape().as_list())
-                # r_positive = n_positives / n_entries
+                pmask = gscores[i] > match_threshold
+                fpmask = tf.cast(pmask, dtype)
+                n_positives = tf.reduce_sum(fpmask)
+
                 # Select some random negative entries.
-                r_negative = negative_ratio * n_positives / (n_entries - n_positives)
-                nmask = tf.random_uniform(gclasses[i].get_shape(),
-                                          dtype=logits[i].dtype)
-                nmask = nmask * (1. - pmask)
-                nmask = tf.cast(nmask > 1. - r_negative, logits[i].dtype)
+                # n_entries = np.prod(gclasses[i].get_shape().as_list())
+                # r_positive = n_positives / n_entries
+                # r_negative = negative_ratio * n_positives / (n_entries - n_positives)
+
+                # Negative mask.
+                no_classes = tf.cast(pmask, tf.int32)
+                predictions = slim.softmax(logits[i])
+                nmask = tf.logical_and(tf.logical_not(pmask),
+                                       gscores[i] > -0.5)
+                fnmask = tf.cast(nmask, dtype)
+                nvalues = tf.where(nmask,
+                                   predictions[:, :, :, :, 0],
+                                   1. - fnmask)
+                nvalues_flat = tf.reshape(nvalues, [-1])
+                # Number of negative entries to select.
+                n_neg = tf.cast(negative_ratio * n_positives, tf.int32)
+                n_neg = tf.maximum(n_neg, tf.size(nvalues_flat) // 8)
+                n_neg = tf.maximum(n_neg, tf.shape(nvalues)[0] * 4)
+                max_neg_entries = 1 + tf.cast(tf.reduce_sum(fnmask), tf.int32)
+                n_neg = tf.minimum(n_neg, max_neg_entries)
+
+                val, idxes = tf.nn.top_k(-nvalues_flat, k=n_neg)
+                minval = val[-1]
+                # Final negative mask.
+                nmask = tf.logical_and(nmask, -nvalues > minval)
+                fnmask = tf.cast(nmask, dtype)
 
                 # Add cross-entropy loss.
-                with tf.name_scope('cross_entropy'):
-                    # Weights Tensor: positive mask + random negative.
-                    weights = pmask + nmask
-                    loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits[i],
-                                                                          gclasses[i])
-                    loss = tf.contrib.losses.compute_weighted_loss(loss, weights)
-                    l_cross.append(loss)
+                with tf.name_scope('cross_entropy_pos'):
+                    loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits[i],
+                                                                          labels=gclasses[i])
+                    loss = tf.losses.compute_weighted_loss(loss, fpmask)
+                    l_cross_pos.append(loss)
+
+                with tf.name_scope('cross_entropy_neg'):
+                    loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits[i],
+                                                                          labels=no_classes)
+                    loss = tf.losses.compute_weighted_loss(loss, fnmask)
+                    l_cross_neg.append(loss)
 
                 # Add localization loss: smooth L1, L2, ...
                 with tf.name_scope('localization'):
                     # Weights Tensor: positive mask + random negative.
-                    weights = alpha * pmask
+                    weights = tf.expand_dims(alpha * fpmask, axis=-1)
                     loss = custom_layers.abs_smooth(localisations[i] - glocalisations[i])
-                    loss = tf.contrib.losses.compute_weighted_loss(loss, weights)
+                    loss = tf.losses.compute_weighted_loss(loss, weights)
                     l_loc.append(loss)
 
-        # Total losses in summaries...
+        # Additional total losses...
         with tf.name_scope('total'):
-            tf.summary.scalar('cross_entropy', tf.add_n(l_cross))
-            tf.summary.scalar('localization', tf.add_n(l_loc))
+            total_cross_pos = tf.add_n(l_cross_pos, 'cross_entropy_pos')
+            total_cross_neg = tf.add_n(l_cross_neg, 'cross_entropy_neg')
+            total_cross = tf.add(total_cross_pos, total_cross_neg, 'cross_entropy')
+            total_loc = tf.add_n(l_loc, 'localization')
+
+            # Add to EXTRA LOSSES TF.collection
+            tf.add_to_collection('EXTRA_LOSSES', total_cross_pos)
+            tf.add_to_collection('EXTRA_LOSSES', total_cross_neg)
+            tf.add_to_collection('EXTRA_LOSSES', total_cross)
+            tf.add_to_collection('EXTRA_LOSSES', total_loc)

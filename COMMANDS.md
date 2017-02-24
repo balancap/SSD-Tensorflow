@@ -55,6 +55,22 @@ python eval_ssd_network.py \
     --batch_size=1 \
     --max_num_batches=10
 
+
+DATASET_DIR=/media/paul/DataExt4/PascalVOC/dataset
+EVAL_DIR=./logs/ssd_300_vgg_1_eval
+CHECKPOINT_PATH=./checkpoints/VGG_VOC0712_SSD_512x512_ft_iter_120000.ckpt
+python eval_ssd_network.py \
+    --eval_dir=${EVAL_DIR} \
+    --dataset_dir=${DATASET_DIR} \
+    --dataset_name=pascalvoc_2007 \
+    --dataset_split_name=test \
+    --model_name=ssd_512_vgg \
+    --checkpoint_path=${CHECKPOINT_PATH} \
+    --batch_size=1 \
+    --max_num_batches=10
+
+
+
 python eval_image_classifier.py \
     --alsologtostderr \
     --checkpoint_path=${CHECKPOINT_PATH} \
