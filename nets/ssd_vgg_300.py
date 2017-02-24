@@ -528,8 +528,7 @@ def ssd_arg_scope(weight_decay=0.0005, data_format='NHWC'):
         with slim.arg_scope([slim.conv2d, slim.max_pool2d],
                             padding='SAME',
                             data_format=data_format):
-            with slim.arg_scope([slim.conv2d, slim.max_pool2d,
-                                 custom_layers.pad2d,
+            with slim.arg_scope([custom_layers.pad2d,
                                  custom_layers.l2_normalization,
                                  custom_layers.channel_to_last],
                                 data_format=data_format) as sc:

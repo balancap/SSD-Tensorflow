@@ -207,11 +207,13 @@ def streaming_precision_recall_arrays(n_gbboxes, rclasses, rscores,
         return r, update_op
 
 
-def average_precision(precision, recall, name=None):
-    """Compute a average precision from precision and recall Tensors.
-    Implementation following Pascal 2012 and ILSVRC guidelines.
+def average_precision_voc12(precision, recall, name=None):
+    """Compute (interpolated) average precision from precision and recall Tensors.
+
+    The implementation follows Pascal 2012 and ILSVRC guidelines.
+    See also: https://sanchom.wordpress.com/tag/average-precision/
     """
-    with tf.name_scope(name, 'average_precision', [precision, recall]):
+    with tf.name_scope(name, 'average_precision_voc12', [precision, recall]):
         # Convert to float64 to decrease error on Riemann sums.
         precision = tf.cast(precision, dtype=tf.float64)
         recall = tf.cast(recall, dtype=tf.float64)
@@ -231,8 +233,10 @@ def average_precision(precision, recall, name=None):
 
 
 def average_precision_voc07(precision, recall, name=None):
-    """Compute a average precision from precision and recall Tensors.
-    Implementation following Pascal 2007 guidelines.
+    """Compute (interpolated) average precision from precision and recall Tensors.
+
+    The implementation follows Pascal 2007 guidelines.
+    See also: https://sanchom.wordpress.com/tag/average-precision/
     """
     with tf.name_scope(name, 'average_precision_voc07', [precision, recall]):
         # Convert to float64 to decrease error on cumulated sums.

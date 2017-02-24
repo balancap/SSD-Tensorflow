@@ -41,7 +41,7 @@ DATA_FORMAT = 'NHWC'
 # SSD evaluation Flags.
 # =========================================================================== #
 tf.app.flags.DEFINE_integer(
-    'select_threshold', 0.1, 'Selection threshold.')
+    'select_threshold', 0.01, 'Selection threshold.')
 tf.app.flags.DEFINE_integer(
     'select_top_k', 400, 'Select top-k detected objects.')
 tf.app.flags.DEFINE_integer(
@@ -248,8 +248,8 @@ def main(_):
             tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
 
         # Compute Average Precision (Pascal 2012).
-        ap = tfe.average_precision(metric_val[0], metric_val[1])
-        summary_name = 'eval/average_precision'
+        ap = tfe.average_precision_voc12(metric_val[0], metric_val[1])
+        summary_name = 'eval/average_precision_voc12'
         op = tf.summary.scalar(summary_name, ap, collections=[])
         op = tf.Print(op, [ap], summary_name)
         tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
