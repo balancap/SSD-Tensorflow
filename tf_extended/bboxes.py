@@ -145,6 +145,20 @@ def bboxes_nms(classes, scores, bboxes,
         return classes, scores, bboxes
 
 
+def bboxes_fast_nms(classes, scores, bboxes,
+                    nms_threshold=0.5, eta=3., num_classes=21,
+                    pad_output=True, scope=None):
+    with tf.name_scope(scope, 'bboxes_fast_nms',
+                       [classes, scores, bboxes]):
+
+        nms_classes = tf.zeros((0,), dtype=classes.dtype)
+        nms_scores = tf.zeros((0,), dtype=scores.dtype)
+        nms_bboxes = tf.zeros((0, 4), dtype=bboxes.dtype)
+
+
+
+
+
 def bboxes_nms_batch(classes, scores, bboxes,
                      nms_threshold=0.5, num_classes=21, scope=None):
     """Apply non-maximum selection to bounding boxes. In comparison to TF

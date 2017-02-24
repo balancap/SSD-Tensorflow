@@ -390,6 +390,11 @@ def preprocess_image(image,
       A preprocessed image.
     """
     if is_training:
-        return preprocess_for_train(image, labels, bboxes, out_shape)
+        return preprocess_for_train(image, labels, bboxes,
+                                    out_shape=out_shape,
+                                    data_format=data_format)
     else:
-        return preprocess_for_eval(image, labels, bboxes, out_shape, **kwargs)
+        return preprocess_for_eval(image, labels, bboxes,
+                                   out_shape=out_shape,
+                                   data_format=data_format,
+                                   **kwargs)

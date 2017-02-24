@@ -35,6 +35,7 @@ slim = tf.contrib.slim
 # List of recalls values at which precision is evaluated.
 LIST_RECALLS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.85,
                 0.90, 0.95, 0.96, 0.97, 0.98, 0.99]
+DATA_FORMAT = 'NCHW'
 
 # =========================================================================== #
 # SSD evaluation Flags.
@@ -148,8 +149,10 @@ def main(_):
             image, glabels, gbboxes, gbbox_img = \
                 image_preprocessing_fn(image, glabels, gbboxes,
                                        out_shape=ssd_shape,
+                                       data_format=DATA_FORMAT,
                                        resize=FLAGS.eval_resize,
                                        difficults=gdifficult)
+
             # Encode groundtruth labels and bboxes.
             gclasses, glocalisations, gscores = \
                 ssd_net.bboxes_encode(glabels, gbboxes, ssd_anchors)
@@ -170,7 +173,7 @@ def main(_):
         # SSD Network + Ouputs decoding.
         # =================================================================== #
         dict_metrics = {}
-        arg_scope = ssd_net.arg_scope()
+        arg_scope = ssd_net.arg_scope(data_format=DATA_FORMAT)
         with slim.arg_scope(arg_scope):
             predictions, localisations, logits, end_points = \
                 ssd_net.net(b_image, is_training=False)

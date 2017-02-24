@@ -474,15 +474,13 @@ def ssd_net(inputs,
         with tf.variable_scope(end_point):
             net = slim.conv2d(net, 256, [1, 1], scope='conv1x1')
             net = custom_layers.pad2d(net, pad=(1, 1))
-            net = slim.conv2d(net, 512, [3, 3], stride=2, scope='conv3x3',
-                              padding='VALID')
+            net = slim.conv2d(net, 512, [3, 3], stride=2, scope='conv3x3', padding='VALID')
         end_points[end_point] = net
         end_point = 'block9'
         with tf.variable_scope(end_point):
             net = slim.conv2d(net, 128, [1, 1], scope='conv1x1')
             net = custom_layers.pad2d(net, pad=(1, 1))
-            net = slim.conv2d(net, 256, [3, 3], stride=2, scope='conv3x3',
-                              padding='VALID')
+            net = slim.conv2d(net, 256, [3, 3], stride=2, scope='conv3x3', padding='VALID')
         end_points[end_point] = net
         end_point = 'block10'
         with tf.variable_scope(end_point):
@@ -531,7 +529,8 @@ def ssd_arg_scope(weight_decay=0.0005, data_format='NHWC'):
         with slim.arg_scope([slim.conv2d, slim.max_pool2d],
                             padding='SAME',
                             data_format=data_format):
-            with slim.arg_scope([custom_layers.pad2d,
+            with slim.arg_scope([slim.conv2d, slim.max_pool2d,
+                                 custom_layers.pad2d,
                                  custom_layers.l2_normalization,
                                  custom_layers.channel_to_last],
                                 data_format=data_format) as sc:

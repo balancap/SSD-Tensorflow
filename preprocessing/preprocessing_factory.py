@@ -54,6 +54,6 @@ def get_preprocessing(name, is_training=False):
     def preprocessing_fn(image, labels, bboxes,
                          out_shape, data_format='NHWC', **kwargs):
         return preprocessing_fn_map[name].preprocess_image(
-            image, labels, bboxes, out_shape, data_format,
+            image, labels, bboxes, out_shape, data_format=data_format,
             is_training=is_training, **kwargs)
     return preprocessing_fn

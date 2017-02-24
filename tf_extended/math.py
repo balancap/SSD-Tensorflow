@@ -60,8 +60,8 @@ def cummax(x, reverse=False, name=None):
             x = tf.reverse(x, axis=[0])
         # 'Accumlating' maximum: ensure it is always increasing.
         cmax = tf.scan(lambda a, y: tf.maximum(a, y), x,
-                       initializer=None, parallel_iterations=10,
-                       back_prop=True, swap_memory=False)
+                       initializer=None, parallel_iterations=1,
+                       back_prop=False, swap_memory=False)
         if reverse:
             cmax = tf.reverse(cmax, axis=[0])
         return cmax

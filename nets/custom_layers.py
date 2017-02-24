@@ -79,17 +79,17 @@ def l2_normalization(
 
     with variable_scope.variable_scope(
             scope, 'L2Normalization', [inputs], reuse=reuse) as sc:
-
         inputs_shape = inputs.get_shape()
         inputs_rank = inputs_shape.ndims
         dtype = inputs.dtype.base_dtype
         if data_format == 'NHWC':
+            norm_dim = tf.range(1, inputs_rank-1)
             params_shape = inputs_shape[-1:]
         elif data_format == 'NCHW':
+            norm_dim = tf.range(2, inputs_rank)
             params_shape = (inputs_shape[1])
 
         # Normalize along spatial dimensions.
-        norm_dim = tf.range(1, inputs_rank-1)
         outputs = nn.l2_normalize(inputs, norm_dim, epsilon=1e-12)
         # Additional scaling.
         if scaling:
@@ -101,11 +101,14 @@ def l2_normalization(
                                              initializer=scale_initializer,
                                              collections=scale_collections,
                                              trainable=trainable)
-            if data_format == 'NCHW':
+            if data_format == 'NHWC':
+                outputs = tf.multiply(outputs, scale)
+            elif data_format == 'NCHW':
                 scale = tf.expand_dims(scale, axis=-1)
                 scale = tf.expand_dims(scale, axis=-1)
+                outputs = tf.multiply(outputs, scale)
+                # outputs = tf.transpose(outputs, perm=(0, 2, 3, 1))
 
-            outputs = tf.multiply(outputs, scale)
         return utils.collect_named_outputs(outputs_collections,
                                            sc.original_name_scope, outputs)
 
