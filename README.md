@@ -17,6 +17,16 @@ Here are two examples of successful detection outputs:
 ![](pictures/ex1.png "SSD anchors")
 ![](pictures/ex2.png "SSD anchors")
 
+To run the notebook you first have to unzip the checkpoint files in ./checkpoint
+```bash
+unzip ssd_300_vgg.ckpt.zip
+```
+and then start a jupyter notebook with
+```bash
+jupyter notebook notebooks/ssd_notebook.ipynb
+```
+
+
 ## Datasets
 
 The current version only supports Pascal VOC datasets (2007 and 2012). In order to be used for training a SSD model, the former need to be converted to TF-Records using the `tf_convert_data.py` script:
