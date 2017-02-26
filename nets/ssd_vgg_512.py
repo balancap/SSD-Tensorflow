@@ -360,7 +360,7 @@ def ssd_anchors_all_layers(img_shape,
 # Functional definition of VGG-based SSD 512.
 # =========================================================================== #
 def ssd_net(inputs,
-            num_classes=21,
+            num_classes=SSDNet.default_params.num_classes,
             feat_layers=SSDNet.default_params.feat_layers,
             anchor_sizes=SSDNet.default_params.anchor_sizes,
             anchor_ratios=SSDNet.default_params.anchor_ratios,

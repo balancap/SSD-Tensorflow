@@ -39,7 +39,8 @@ def main(_):
 
         # Select the network.
         ssd_class = nets_factory.get_network(FLAGS.model_name)
-        ssd_net = ssd_class()
+        ssd_params = ssd_class.default_params._replace(num_classes=num_classes)
+        ssd_net = ssd_class(ssd_params)
         ssd_shape = ssd_net.params.img_shape
 
         # Image placeholder and model.
