@@ -15,6 +15,7 @@
 """Generic evaluation script that evaluates a SSD model
 on a given dataset."""
 import math
+import sys
 import six
 import time
 

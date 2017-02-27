@@ -286,10 +286,9 @@ def tf_ssd_bboxes_select_layer(predictions_layer, localizations_layer,
             if c != ignore_class:
                 # Remove boxes under the threshold.
                 scores = predictions_layer[:, :, c]
-                mask = tf.greater_equal(scores, select_threshold)
-                scores = scores * tf.cast(mask, scores.dtype)
-                lmask = tf.expand_dims(tf.cast(mask, localizations_layer.dtype), axis=-1)
-                bboxes = localizations_layer * lmask
+                fmask = tf.cast(tf.greater_equal(scores, select_threshold), scores.dtype)
+                scores = scores * fmask
+                bboxes = localizations_layer * tf.expand_dims(fmask, axis=-1)
                 # Append to dictionary.
                 d_scores[c] = scores
                 d_bboxes[c] = bboxes
