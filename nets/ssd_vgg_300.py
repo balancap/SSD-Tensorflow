@@ -219,8 +219,8 @@ class SSDNet(object):
             tfe.bboxes_nms_batch(rscores, rbboxes,
                                  nms_threshold=nms_threshold,
                                  keep_top_k=keep_top_k)
-        # if clipping_bbox is not None:
-        #     rbboxes = tfe.bboxes_clip(clipping_bbox, rbboxes)
+        if clipping_bbox is not None:
+            rbboxes = tfe.bboxes_clip(clipping_bbox, rbboxes)
         return rscores, rbboxes
 
     def losses(self, logits, localisations,

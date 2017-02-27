@@ -158,17 +158,18 @@ def streaming_tp_fp_arrays(num_gbboxes, tp, fp, scores,
                                        [num_gbboxes, tp, fp, scores]):
         num_gbboxes = math_ops.to_int64(num_gbboxes)
         scores = math_ops.to_float(scores)
-        stype = tf.int32
+        stype = tf.bool
         tp = tf.cast(tp, stype)
         fp = tf.cast(fp, stype)
-
         # Reshape TP and FP tensors and clean away 0 class values.
         scores = tf.reshape(scores, [-1])
         tp = tf.reshape(tp, [-1])
         fp = tf.reshape(fp, [-1])
+        # Remove TP and FP both false.
+        mask = tf.logical_or(tp, fp)
         if remove_zero_scores:
             rm_threshold = 1e-4
-            mask = tf.greater(scores, rm_threshold)
+            mask = tf.logical_and(mask, tf.greater(scores, rm_threshold))
             scores = tf.boolean_mask(scores, mask)
             tp = tf.boolean_mask(tp, mask)
             fp = tf.boolean_mask(fp, mask)

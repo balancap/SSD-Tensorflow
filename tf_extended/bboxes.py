@@ -241,7 +241,7 @@ def bboxes_nms_batch(scores, bboxes, nms_threshold=0.5, keep_top_k=200,
 
 
 def bboxes_matching(label, scores, bboxes,
-                    glabels, gbboxes,
+                    glabels, gbboxes, gdifficults,
                     matching_threshold=0.5, scope=None):
     """Matching a collection of detected boxes with groundtruth values.
     Does not accept batched-inputs.
@@ -267,7 +267,9 @@ def bboxes_matching(label, scores, bboxes,
         rshape = tf.shape(scores)
         rlabel = tf.cast(label, glabels.dtype)
         # Number of groundtruth boxes.
-        n_gbboxes = tf.count_nonzero(tf.equal(glabels, label))
+        gdifficults = tf.cast(gdifficults, tf.bool)
+        n_gbboxes = tf.count_nonzero(tf.logical_and(tf.equal(glabels, label),
+                                                    tf.logical_not(gdifficults)))
         # Grountruth matching arrays.
         gmatch = tf.zeros(tf.shape(glabels), dtype=tf.bool)
         grange = tf.range(tf.size(glabels), dtype=tf.int32)
@@ -292,11 +294,19 @@ def bboxes_matching(label, scores, bboxes,
             jcdmax = jaccard[idxmax]
             match = jcdmax > matching_threshold
             existing_match = gmatch[idxmax]
+            not_difficult = tf.logical_not(gdifficults[idxmax])
+
             # TP: match & no previous match and FP: previous match | no match.
-            ta_tp = ta_tp.write(i, tf.logical_and(match, tf.logical_not(existing_match)))
-            ta_fp = ta_fp.write(i, tf.logical_or(existing_match, tf.logical_not(match)))
+            # If difficult: no record, i.e FP=False and TP=False.
+            tp = tf.logical_and(not_difficult,
+                                tf.logical_and(match, tf.logical_not(existing_match)))
+            ta_tp = ta_tp.write(i, tp)
+            fp = tf.logical_and(not_difficult,
+                                tf.logical_or(existing_match, tf.logical_not(match)))
+            ta_fp = ta_fp.write(i, fp)
             # Update grountruth match.
-            mask = tf.logical_and(tf.equal(grange, idxmax), match)
+            mask = tf.logical_and(tf.equal(grange, idxmax),
+                                  tf.logical_and(not_difficult, match))
             gmatch = tf.logical_or(gmatch, mask)
 
             return [i+1, ta_tp, ta_fp, gmatch]
@@ -322,7 +332,7 @@ def bboxes_matching(label, scores, bboxes,
 
 
 def bboxes_matching_batch(labels, scores, bboxes,
-                          glabels, gbboxes,
+                          glabels, gbboxes, gdifficults,
                           matching_threshold=0.5, scope=None):
     """Matching a collection of detected boxes with groundtruth values.
     Batched-inputs version.
@@ -346,7 +356,7 @@ def bboxes_matching_batch(labels, scores, bboxes,
             d_fp = {}
             for c in labels:
                 n, tp, fp, _ = bboxes_matching_batch(c, scores[c], bboxes[c],
-                                                     glabels, gbboxes,
+                                                     glabels, gbboxes, gdifficults,
                                                      matching_threshold)
                 d_n_gbboxes[c] = n
                 d_tp[c] = tp
@@ -355,9 +365,10 @@ def bboxes_matching_batch(labels, scores, bboxes,
 
     with tf.name_scope(scope, 'bboxes_matching_batch',
                        [scores, bboxes, glabels, gbboxes]):
-        r = tf.map_fn(lambda x: bboxes_matching(labels, x[0], x[1], x[2], x[3],
+        r = tf.map_fn(lambda x: bboxes_matching(labels, x[0], x[1],
+                                                x[2], x[3], x[4],
                                                 matching_threshold),
-                      (scores, bboxes, glabels, gbboxes),
+                      (scores, bboxes, glabels, gbboxes, gdifficults),
                       dtype=(tf.int64, tf.bool, tf.bool),
                       parallel_iterations=10,
                       back_prop=False,

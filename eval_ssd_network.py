@@ -43,7 +43,9 @@ DATA_FORMAT = 'NHWC'
 tf.app.flags.DEFINE_integer(
     'select_threshold', 0.01, 'Selection threshold.')
 tf.app.flags.DEFINE_integer(
-    'select_top_k', 400, 'Select top-k detected objects.')
+    'select_top_k', 400, 'Select top-k detected bounding boxes.')
+tf.app.flags.DEFINE_integer(
+    'keep_top_k', 200, 'Keep top-k detected objects.')
 tf.app.flags.DEFINE_integer(
     'nms_threshold', 0.45, 'Non-Maximum Selection threshold.')
 tf.app.flags.DEFINE_integer(
@@ -92,7 +94,7 @@ tf.app.flags.DEFINE_float(
     'The decay to use for the moving average.'
     'If left as None, then moving averages are not used.')
 tf.app.flags.DEFINE_integer(
-    'gpu_memory_fraction', 0.3, 'GPU memory fraction to use.')
+    'gpu_memory_fraction', 0.1, 'GPU memory fraction to use.')
 
 
 FLAGS = tf.app.flags.FLAGS
@@ -117,8 +119,7 @@ def main(_):
         ssd_params = ssd_class.default_params._replace(num_classes=FLAGS.num_classes)
         ssd_net = ssd_class(ssd_params)
 
-        # Evaluation shape and associated anchors.
-        # eval_image_size
+        # Evaluation shape and associated anchors: eval_image_size
         ssd_shape = ssd_net.params.img_shape
         ssd_anchors = ssd_net.anchors(ssd_shape)
 
@@ -144,9 +145,9 @@ def main(_):
                                                              'object/label',
                                                              'object/bbox'])
             if FLAGS.remove_difficult:
-                [gdifficult] = provider.get(['object/difficult'])
+                [gdifficults] = provider.get(['object/difficult'])
             else:
-                gdifficult = None
+                gdifficults = tf.zeros(tf.shape(glabels), dtype=tf.int64)
 
             # Pre-processing image, labels and bboxes.
             image, glabels, gbboxes, gbbox_img = \
@@ -154,22 +155,22 @@ def main(_):
                                        out_shape=ssd_shape,
                                        data_format=DATA_FORMAT,
                                        resize=FLAGS.eval_resize,
-                                       difficults=gdifficult)
+                                       difficults=None)
 
             # Encode groundtruth labels and bboxes.
             gclasses, glocalisations, gscores = \
                 ssd_net.bboxes_encode(glabels, gbboxes, ssd_anchors)
-            batch_shape = [1] * 4 + [len(ssd_anchors)] * 3
+            batch_shape = [1] * 5 + [len(ssd_anchors)] * 3
 
             # Evaluation batch.
             r = tf.train.batch(
-                tf_utils.reshape_list([image, glabels, gbboxes, gbbox_img,
+                tf_utils.reshape_list([image, glabels, gbboxes, gdifficults, gbbox_img,
                                        gclasses, glocalisations, gscores]),
                 batch_size=FLAGS.batch_size,
                 num_threads=FLAGS.num_preprocessing_threads,
                 capacity=5 * FLAGS.batch_size,
                 dynamic_pad=True)
-            (b_image, b_glabels, b_gbboxes, b_gbbox_img, b_gclasses,
+            (b_image, b_glabels, b_gbboxes, b_gdifficults, b_gbbox_img, b_gclasses,
              b_glocalisations, b_gscores) = tf_utils.reshape_list(r, batch_shape)
 
         # =================================================================== #
@@ -192,13 +193,13 @@ def main(_):
                 ssd_net.detected_bboxes(predictions, localisations,
                                         select_threshold=FLAGS.select_threshold,
                                         nms_threshold=FLAGS.nms_threshold,
-                                        clipping_bbox=b_gbbox_img,
-                                        top_k=FLAGS.select_top_k)
-
+                                        clipping_bbox=None,
+                                        top_k=FLAGS.select_top_k,
+                                        keep_top_k=FLAGS.keep_top_k)
             # Compute TP and FP statistics.
             num_gbboxes, tp, fp, rscores = \
                 tfe.bboxes_matching_batch(rscores.keys(), rscores, rbboxes,
-                                          b_glabels, b_gbboxes,
+                                          b_glabels, b_gbboxes, b_gdifficults,
                                           matching_threshold=FLAGS.matching_threshold)
 
         # Variables to restore: moving avg. or normal weights.
@@ -239,46 +240,46 @@ def main(_):
 
             # Add to summaries precision/recall values.
             aps_voc07 = {}
+            aps_voc12 = {}
             for c in tp_fp_metric[0].keys():
+                # Precison and recall values.
                 prec, rec = tfe.precision_recall(*tp_fp_metric[0][c])
+
                 # Average precision VOC07.
                 v = tfe.average_precision_voc07(prec, rec)
-                summary_name = 'eval/average_precision_voc07_%s' % c
+                summary_name = 'AP_VOC07/%s' % c
                 op = tf.summary.scalar(summary_name, v, collections=[])
                 op = tf.Print(op, [v], summary_name)
                 tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
                 aps_voc07[c] = v
 
-            # Mean average precision.
-            summary_name = 'eval/mAP_voc07'
+                # Average precision VOC12.
+                v = tfe.average_precision_voc12(prec, rec)
+                summary_name = 'AP_VOC12/%s' % c
+                op = tf.summary.scalar(summary_name, v, collections=[])
+                op = tf.Print(op, [v], summary_name)
+                tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
+                aps_voc12[c] = v
+
+            # Mean average precision VOC07.
+            summary_name = 'AP_VOC07/mAP'
             mAP = tf.add_n(list(aps_voc07.values())) / len(aps_voc07)
             op = tf.summary.scalar(summary_name, mAP, collections=[])
             op = tf.Print(op, [mAP], summary_name)
             tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
 
-        # metric_val = dict_metrics['precision_recall'][0]
-        # l_precisions = tfe.precision_recall_values(LIST_RECALLS,
-        #                                            metric_val[0],
-        #                                            metric_val[1])
+            # Mean average precision VOC12.
+            summary_name = 'AP_VOC12/mAP'
+            mAP = tf.add_n(list(aps_voc12.values())) / len(aps_voc12)
+            op = tf.summary.scalar(summary_name, mAP, collections=[])
+            op = tf.Print(op, [mAP], summary_name)
+            tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
+
         # for i, v in enumerate(l_precisions):
         #     summary_name = 'eval/precision_at_recall_%.2f' % LIST_RECALLS[i]
         #     op = tf.summary.scalar(summary_name, v, collections=[])
         #     op = tf.Print(op, [v], summary_name)
         #     tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
-
-        # # Compute Average Precision (Pascal 2012).
-        # ap = tfe.average_precision_voc12(metric_val[0], metric_val[1])
-        # summary_name = 'eval/average_precision_voc12'
-        # op = tf.summary.scalar(summary_name, ap, collections=[])
-        # op = tf.Print(op, [ap], summary_name)
-        # tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
-
-        # # Compute Average Precision (Pascal 2007).
-        # ap = tfe.average_precision_voc07(metric_val[0], metric_val[1])
-        # summary_name = 'eval/average_precision_voc07'
-        # op = tf.summary.scalar(summary_name, ap, collections=[])
-        # op = tf.Print(op, [ap], summary_name)
-        # tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
 
         # Split into values and updates ops.
         names_to_values, names_to_updates = slim.metrics.aggregate_metric_map(dict_metrics)
@@ -299,7 +300,7 @@ def main(_):
         else:
             checkpoint_path = FLAGS.checkpoint_path
 
-        start = time.clock()
+        start = time.time()
         tf.logging.info('Evaluating %s' % checkpoint_path)
         slim.evaluation.evaluate_once(
             master=FLAGS.master,
@@ -310,7 +311,7 @@ def main(_):
             variables_to_restore=variables_to_restore,
             session_config=config)
         # Log time spent.
-        elapsed = time.clock()
+        elapsed = time.time()
         elapsed = elapsed - start
         print('Time spent : %.3f seconds.' % elapsed)
         print('Time spent per BATCH: %.3f seconds.' % (elapsed / num_batches))
