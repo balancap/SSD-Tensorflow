@@ -79,6 +79,10 @@ python caffe_to_tensorflow.py \
 ## Training
 
 The script `train_ssd_network.py` is in charged of training the network. Similarly to TF-Slim models, one can pass numerous options to the training process (dataset, optimiser, hyper-parameters, model, ...). In particular, it is possible to provide a checkpoint file which can be use as starting point in order to fine-tune a network.
+
+### Fine-tuning existing SSD checkpoints
+
+The easiest way to fine the SSD model is to use as pre-trained SSD network (VGG-300 or VGG-512). For instance, one can fine a model starting from the former as following:
 ```bash
 DATASET_DIR=./tfrecords
 TRAIN_DIR=./logs/
@@ -97,8 +101,32 @@ python train_ssd_network.py \
     --learning_rate=0.0001 \
     --batch_size=32
 ```
-One can also specify the scopes of variables to load or ignore from a checkpoint. It is particularly useful to fine-tune a model using weights from the original base network (VGG, ResNets, Inception, ...).
+Note that in addition to the training script flags, one may also want to experiment with data augmentation parameters (random cropping, resolution, ...) in `ssd_vgg_preprocessing.py` or/and network parameters (feature layers, anchors boxes, ...) in `ssd_vgg_300/512.py`
 
-In addition to the script flags, one may also want to experiment with data augmentation (random cropping, resolution, ...) or/and network parameters (feature layers, anchors boxes, ...).
+Furthermore, the training script can be combined with the evaluation routine in order to monitor the performance of saved checkpoints on a validation dataset. For that purpose, one can pass to training and validation scripts a GPU memory upper limit such that both can run in parallel on the same device.
 
-The training script can be combined with the previous evaluation one in order to monitor the performance of saved checkpoints on a validation dataset. For that purpose, one can pass to training and validation scripts a GPU memory upper limit such that both can run in parallel on the same device.
+### Fine-tuning a network trained on ImageNet
+
+One can also try to build a new SSD model based on standard architecture (VGG, ResNet, Inception, ...) and set up on top of it the `multibox` layers (with specific anchors, ratios, ...). For that purpose, you can fine-tune a network by only loading the weights of the original architecture, and initialize randomly the rest of network. For instance, in the case of the VGG architecture, one can start the training as following:
+```bash
+DATASET_DIR=./tfrecords
+TRAIN_DIR=./logs/
+CHECKPOINT_PATH=./checkpoints/vgg_16.ckpt
+python train_ssd_network.py \
+    --train_dir=${TRAIN_DIR} \
+    --dataset_dir=${DATASET_DIR} \
+    --dataset_name=pascalvoc_2007 \
+    --dataset_split_name=train \
+    --model_name=ssd_300_vgg \
+    --checkpoint_path=${CHECKPOINT_PATH} \
+    --checkpoint_exclude_scopes=ssd_300_vgg/block4_box,ssd_300_vgg/block7_box,ssd_300_vgg/block8_box,ssd_300_vgg/block9_box,ssd_300_vgg/block10_box,ssd_300_vgg/block11_box \
+    --save_summaries_secs=60 \
+    --save_interval_secs=600 \
+    --weight_decay=0.00001 \
+    --optimizer=rmsprop \
+    --learning_rate=0.0001 \
+    --batch_size=32
+```
+Hence, in the former command, the training script randomly initializes the weights in the `checkpoint_exclude_scopes` and load from the checkpoint file the rest.
+
+Note that a number of pre-trained weights of popular architectures can be found on this page: [https://github.com/tensorflow/models/tree/master/slim].

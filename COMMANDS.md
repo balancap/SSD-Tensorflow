@@ -80,6 +80,9 @@ python eval_image_classifier.py \
     --model_name=inception_v3
 
 
+
+python train_ssd_network.py     --train_dir=${TRAIN_DIR}     --dataset_dir=${DATASET_DIR}     --checkpoint_path=${CHECKPOINT_PATH}     --checkpoint_exclude_scopes=ssd_300_vgg/block4_box,ssd_300_vgg/block7_box,ssd_300_vgg/block8_box,ssd_300_vgg/block9_box,ssd_300_vgg/block10_box,ssd_300_vgg/block11_box     --dataset_name=kitti     --dataset_split_name=train     --model_name=ssd_300_vgg     --save_summaries_secs=60     --save_interval_secs=60     --weight_decay=0.0005     --optimizer=adam     --learning_rate=0.0001     --batch_size=8
+
 # =========================================================================== #
 # Inception v3
 # =========================================================================== #

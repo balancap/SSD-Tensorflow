@@ -221,7 +221,7 @@ def bboxes_nms_batch(scores, bboxes, nms_threshold=0.5, keep_top_k=200,
                                            nms_threshold, keep_top_k),
                       (scores, bboxes),
                       dtype=(scores.dtype, bboxes.dtype),
-                      parallel_iterations=1,
+                      parallel_iterations=10,
                       back_prop=False,
                       swap_memory=False,
                       infer_shape=True)
@@ -315,7 +315,7 @@ def bboxes_matching(label, scores, bboxes,
         [i, ta_tp_bool, ta_fp_bool, gmatch] = \
             tf.while_loop(m_condition, m_body,
                           [i, ta_tp_bool, ta_fp_bool, gmatch],
-                          parallel_iterations=10,
+                          parallel_iterations=1,
                           back_prop=False)
         # TensorArrays to Tensors and reshape.
         tp_match = tf.reshape(ta_tp_bool.stack(), rshape)
