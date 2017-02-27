@@ -92,7 +92,7 @@ tf.app.flags.DEFINE_float(
     'The decay to use for the moving average.'
     'If left as None, then moving averages are not used.')
 tf.app.flags.DEFINE_integer(
-    'gpu_memory_fraction', 0.1, 'GPU memory fraction to use.')
+    'gpu_memory_fraction', 0.3, 'GPU memory fraction to use.')
 
 
 FLAGS = tf.app.flags.FLAGS
@@ -188,7 +188,7 @@ def main(_):
         with tf.device('/cpu:0'):
             # Detected objects from SSD output.
             localisations = ssd_net.bboxes_decode(localisations, ssd_anchors)
-            rclasses, rscores, rbboxes = \
+            rscores, rbboxes = \
                 ssd_net.detected_bboxes(predictions, localisations,
                                         select_threshold=FLAGS.select_threshold,
                                         nms_threshold=FLAGS.nms_threshold,
@@ -196,8 +196,8 @@ def main(_):
                                         top_k=FLAGS.select_top_k)
 
             # Compute TP and FP statistics.
-            n_gbboxes, tp_tensor, fp_tensor = \
-                tfe.bboxes_matching_batch(rclasses, rscores, rbboxes,
+            num_gbboxes, tp, fp, rscores = \
+                tfe.bboxes_matching_batch(rscores.keys(), rscores, rbboxes,
                                           b_glabels, b_gbboxes,
                                           matching_threshold=FLAGS.matching_threshold)
 
@@ -231,35 +231,54 @@ def main(_):
                 # op = tf.Print(op, [metric[0]], summary_name)
                 tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
 
-            # Precision / recall arrays metrics.
-            dict_metrics['precision_recall'] = \
-                tfe.streaming_precision_recall_arrays(n_gbboxes, rclasses, rscores,
-                                                      tp_tensor, fp_tensor)
+            # FP and TP metrics.
+            tp_fp_metric = tfe.streaming_tp_fp_arrays(num_gbboxes, tp, fp, rscores)
+            for c in tp_fp_metric[0].keys():
+                dict_metrics['tp_fp_%s' % c] = (tp_fp_metric[0][c],
+                                                tp_fp_metric[1][c])
 
-        # Add to summaries precision/recall values.
-        metric_val = dict_metrics['precision_recall'][0]
-        l_precisions = tfe.precision_recall_values(LIST_RECALLS,
-                                                   metric_val[0],
-                                                   metric_val[1])
-        for i, v in enumerate(l_precisions):
-            summary_name = 'eval/precision_at_recall_%.2f' % LIST_RECALLS[i]
-            op = tf.summary.scalar(summary_name, v, collections=[])
-            op = tf.Print(op, [v], summary_name)
+            # Add to summaries precision/recall values.
+            aps_voc07 = {}
+            for c in tp_fp_metric[0].keys():
+                prec, rec = tfe.precision_recall(*tp_fp_metric[0][c])
+                # Average precision VOC07.
+                v = tfe.average_precision_voc07(prec, rec)
+                summary_name = 'eval/average_precision_voc07_%s' % c
+                op = tf.summary.scalar(summary_name, v, collections=[])
+                op = tf.Print(op, [v], summary_name)
+                tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
+                aps_voc07[c] = v
+
+            # Mean average precision.
+            summary_name = 'eval/mAP_voc07'
+            mAP = tf.add_n(list(aps_voc07.values())) / len(aps_voc07)
+            op = tf.summary.scalar(summary_name, mAP, collections=[])
+            op = tf.Print(op, [mAP], summary_name)
             tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
 
-        # Compute Average Precision (Pascal 2012).
-        ap = tfe.average_precision_voc12(metric_val[0], metric_val[1])
-        summary_name = 'eval/average_precision_voc12'
-        op = tf.summary.scalar(summary_name, ap, collections=[])
-        op = tf.Print(op, [ap], summary_name)
-        tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
+        # metric_val = dict_metrics['precision_recall'][0]
+        # l_precisions = tfe.precision_recall_values(LIST_RECALLS,
+        #                                            metric_val[0],
+        #                                            metric_val[1])
+        # for i, v in enumerate(l_precisions):
+        #     summary_name = 'eval/precision_at_recall_%.2f' % LIST_RECALLS[i]
+        #     op = tf.summary.scalar(summary_name, v, collections=[])
+        #     op = tf.Print(op, [v], summary_name)
+        #     tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
 
-        # Compute Average Precision (Pascal 2007).
-        ap = tfe.average_precision_voc07(metric_val[0], metric_val[1])
-        summary_name = 'eval/average_precision_voc07'
-        op = tf.summary.scalar(summary_name, ap, collections=[])
-        op = tf.Print(op, [ap], summary_name)
-        tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
+        # # Compute Average Precision (Pascal 2012).
+        # ap = tfe.average_precision_voc12(metric_val[0], metric_val[1])
+        # summary_name = 'eval/average_precision_voc12'
+        # op = tf.summary.scalar(summary_name, ap, collections=[])
+        # op = tf.Print(op, [ap], summary_name)
+        # tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
+
+        # # Compute Average Precision (Pascal 2007).
+        # ap = tfe.average_precision_voc07(metric_val[0], metric_val[1])
+        # summary_name = 'eval/average_precision_voc07'
+        # op = tf.summary.scalar(summary_name, ap, collections=[])
+        # op = tf.Print(op, [ap], summary_name)
+        # tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
 
         # Split into values and updates ops.
         names_to_values, names_to_updates = slim.metrics.aggregate_metric_map(dict_metrics)

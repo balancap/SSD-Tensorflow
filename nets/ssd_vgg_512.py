@@ -190,16 +190,15 @@ class SSDNet(object):
                                             select_threshold=select_threshold,
                                             num_classes=self.params.num_classes)
         rscores, rbboxes = \
-            tfe.bboxes_sort_per_class(rscores, rbboxes, top_k=top_k)
+            tfe.bboxes_sort(rscores, rbboxes, top_k=top_k)
         # Apply NMS algorithm.
-        rclasses, rscores, rbboxes = \
+        rscores, rbboxes = \
             tfe.bboxes_nms_batch(rscores, rbboxes,
                                  nms_threshold=nms_threshold,
-                                 keep_top_k=keep_top_k,
-                                 num_classes=self.params.num_classes)
+                                 keep_top_k=keep_top_k)
         # if clipping_bbox is not None:
         #     rbboxes = tfe.bboxes_clip(clipping_bbox, rbboxes)
-        return rclasses, rscores, rbboxes
+        return rscores, rbboxes
 
     def losses(self, logits, localisations,
                gclasses, glocalisations, gscores,

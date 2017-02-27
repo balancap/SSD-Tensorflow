@@ -57,24 +57,31 @@ def bboxes_sort_all_classes(classes, scores, bboxes, top_k=400, scope=None):
         return classes, scores, bboxes
 
 
-def bboxes_sort_per_class(scores, bboxes, top_k=400, scope=None):
+def bboxes_sort(scores, bboxes, top_k=400, scope=None):
     """Sort bounding boxes by decreasing order and keep only the top_k.
-    Assume the input Tensor have a class dimension.
+    If inputs are dictionnaries, assume every key is a different class.
     Assume a batch-type input.
 
     Args:
-      scores: Batch x N_classes-1 x N Tensor containing float scores.
-      bboxes: Batch x N_classes-1 x N x 4 Tensor containing boxes coordinates.
+      scores: Batch x N Tensor/Dictionary containing float scores.
+      bboxes: Batch x N x 4 Tensor/Dictionary containing boxes coordinates.
       top_k: Top_k boxes to keep.
     Return:
-      scores, bboxes: Sorted tensors of shape Batch x N_classes-1 x Top_k.
+      scores, bboxes: Sorted Tensors/Dictionaries of shape Batch x Top_k x 1|4.
     """
-    with tf.name_scope(scope, 'bboxes_sort_per_class', [scores, bboxes]):
-        # Reshape to ease the sorting...
-        shape = tfe_tensors.get_shape(scores)
-        scores = tf.reshape(scores, [-1, shape[-1]])
-        bboxes = tf.reshape(bboxes, [-1, shape[-1], 4])
+    # Dictionaries as inputs.
+    if isinstance(scores, dict) or isinstance(bboxes, dict):
+        with tf.name_scope(scope, 'bboxes_sort_dict'):
+            d_scores = {}
+            d_bboxes = {}
+            for c in scores.keys():
+                s, b = bboxes_sort(scores[c], bboxes[c], top_k=top_k)
+                d_scores[c] = s
+                d_bboxes[c] = b
+            return d_scores, d_bboxes
 
+    # Tensors inputs.
+    with tf.name_scope(scope, 'bboxes_sort', [scores, bboxes]):
         # Sort scores...
         scores, idxes = tf.nn.top_k(scores, k=top_k, sorted=True)
 
@@ -90,9 +97,6 @@ def bboxes_sort_per_class(scores, bboxes, top_k=400, scope=None):
                       swap_memory=False,
                       infer_shape=True)
         bboxes = r[0]
-        # Back to original shape...
-        scores = tf.reshape(scores, [shape[0], shape[1], top_k])
-        bboxes = tf.reshape(bboxes, [shape[0], shape[1], top_k, 4])
         return scores, bboxes
 
 
@@ -103,10 +107,19 @@ def bboxes_clip(bbox_ref, bboxes, scope=None):
 
     Args:
       bbox_ref: Reference bounding box. Nx4 or 4 shaped-Tensor;
-      bboxes: Bounding boxes to clip. Nx4 or 4 shaped-Tensor;
+      bboxes: Bounding boxes to clip. Nx4 or 4 shaped-Tensor or dictionary.
     Return:
       Clipped bboxes.
     """
+    # Bboxes is dictionary.
+    if isinstance(bboxes, dict):
+        with tf.name_scope(scope, 'bboxes_clip_dict'):
+            d_bboxes = {}
+            for c in bboxes.keys():
+                d_bboxes[c] = bboxes_clip(bbox_ref, bboxes[c])
+            return d_bboxes
+
+    # Tensors inputs.
     with tf.name_scope(scope, 'bboxes_clip'):
         # Easier with transposed bboxes. Especially for broadcasting.
         bbox_ref = tf.transpose(bbox_ref)
@@ -125,6 +138,15 @@ def bboxes_resize(bbox_ref, bboxes, name=None):
     assuming that the latter is [0, 0, 1, 1] after transform. Useful for
     updating a collection of boxes after cropping an image.
     """
+    # Bboxes is dictionary.
+    if isinstance(bboxes, dict):
+        with tf.name_scope(name, 'bboxes_resize_dict'):
+            d_bboxes = {}
+            for c in bboxes.keys():
+                d_bboxes[c] = bboxes_resize(bbox_ref, bboxes[c])
+            return d_bboxes
+
+    # Tensors inputs.
     with tf.name_scope(name, 'bboxes_resize'):
         # Translate.
         v = tf.stack([bbox_ref[0], bbox_ref[1], bbox_ref[0], bbox_ref[1]])
@@ -138,80 +160,73 @@ def bboxes_resize(bbox_ref, bboxes, name=None):
         return bboxes
 
 
-def bboxes_nms(scores, bboxes, nms_threshold=0.5, keep_top_k=200,
-               num_classes=21, cdtype=tf.int64, scope=None):
+def bboxes_nms(scores, bboxes, nms_threshold=0.5, keep_top_k=200, scope=None):
     """Apply non-maximum selection to bounding boxes. In comparison to TF
     implementation, use classes information for matching.
     Should only be used on single-entries. Use batch version otherwise.
 
     Args:
-      scores: N_classes-1 x N Tensor containing float scores.
-      bboxes: N_classes-1 x N x 4 Tensor containing boxes coordinates.
+      scores: N Tensor containing float scores.
+      bboxes: N x 4 Tensor containing boxes coordinates.
       nms_threshold: Matching threshold in NMS algorithm;
       keep_top_k: Number of total object to keep after NMS.
-      num_classes: Number of classes in the dataset;
     Return:
       classes, scores, bboxes Tensors, sorted by score.
         Padded with zero if necessary.
     """
     with tf.name_scope(scope, 'bboxes_nms_single', [scores, bboxes]):
-        l_classes = []
-        l_scores = []
-        l_bboxes = []
-        # Apply NMS algorithm on every class.
-        for c in range(1, num_classes):
-            sub_scores = scores[c-1]
-            sub_bboxes = bboxes[c-1]
-            idxes = tf.image.non_max_suppression(sub_bboxes, sub_scores,
-                                                 keep_top_k, nms_threshold)
-            l_classes.append(tf.zeros(tf.shape(idxes), cdtype) + c)
-            l_scores.append(tf.gather(sub_scores, idxes))
-            l_bboxes.append(tf.gather(sub_bboxes, idxes))
-        # Concat results.
-        classes = tf.concat(tf.tuple(l_classes), axis=0)
-        scores = tf.concat(tf.tuple(l_scores), axis=0)
-        bboxes = tf.concat(tf.tuple(l_bboxes), axis=0)
-        # Sort the final results by score.
-        scores, idxes = tf.nn.top_k(scores, k=keep_top_k, sorted=True)
-        classes = tf.gather(classes, idxes)
+        # Apply NMS algorithm.
+        idxes = tf.image.non_max_suppression(bboxes, scores,
+                                             keep_top_k, nms_threshold)
+        scores = tf.gather(scores, idxes)
         bboxes = tf.gather(bboxes, idxes)
-        return classes, scores, bboxes
+        # Pad results.
+        scores = tfe_tensors.pad_axis(scores, 0, keep_top_k, axis=0)
+        bboxes = tfe_tensors.pad_axis(bboxes, 0, keep_top_k, axis=0)
+        return scores, bboxes
 
 
 def bboxes_nms_batch(scores, bboxes, nms_threshold=0.5, keep_top_k=200,
-                     num_classes=21, cdtype=tf.int64, scope=None):
+                     scope=None):
     """Apply non-maximum selection to bounding boxes. In comparison to TF
     implementation, use classes information for matching.
     Use only on batched-inputs. Use zero-padding in order to batch output
     results.
 
     Args:
-      scores: Batch x N_classes-1 x N Tensor containing float scores.
-      bboxes: Batch x N_classes-1 x N x 4 Tensor containing boxes coordinates.
+      scores: Batch x N Tensor/Dictionary containing float scores.
+      bboxes: Batch x N x 4 Tensor/Dictionary containing boxes coordinates.
       nms_threshold: Matching threshold in NMS algorithm;
       keep_top_k: Number of total object to keep after NMS.
-      num_classes: Number of classes in the dataset;
     Return:
-      classes, scores, bboxes Tensors, sorted by score.
+      scores, bboxes Tensors/Dictionaries, sorted by score.
         Padded with zero if necessary.
     """
+    # Dictionaries as inputs.
+    if isinstance(scores, dict) or isinstance(bboxes, dict):
+        with tf.name_scope(scope, 'bboxes_nms_batch_dict'):
+            d_scores = {}
+            d_bboxes = {}
+            for c in scores.keys():
+                s, b = bboxes_nms_batch(scores[c], bboxes[c],
+                                        nms_threshold=nms_threshold,
+                                        keep_top_k=keep_top_k)
+                d_scores[c] = s
+                d_bboxes[c] = b
+            return d_scores, d_bboxes
+
+    # Tensors inputs.
     with tf.name_scope(scope, 'bboxes_nms_batch'):
-        r = tf.map_fn(lambda x: bboxes_nms(x[0], x[1], nms_threshold,
-                                           keep_top_k, num_classes, cdtype),
+        r = tf.map_fn(lambda x: bboxes_nms(x[0], x[1],
+                                           nms_threshold, keep_top_k),
                       (scores, bboxes),
-                      dtype=(cdtype, scores.dtype, bboxes.dtype),
-                      parallel_iterations=10,
+                      dtype=(scores.dtype, bboxes.dtype),
+                      parallel_iterations=1,
                       back_prop=False,
                       swap_memory=False,
                       infer_shape=True)
-        classes, scores, bboxes = r
-
-        # Clean unnecessary zero-padding from outputs.
-        mask = tf.greater(tf.reduce_sum(classes, axis=1), 0)
-        classes = tf.boolean_mask(classes, mask)
-        scores = tf.boolean_mask(scores, mask)
-        bboxes = tf.boolean_mask(bboxes, mask)
-        return classes, scores, bboxes
+        scores, bboxes = r
+        return scores, bboxes
 
 
 # def bboxes_fast_nms(classes, scores, bboxes,
@@ -225,7 +240,7 @@ def bboxes_nms_batch(scores, bboxes, nms_threshold=0.5, keep_top_k=200,
 #         nms_bboxes = tf.zeros((0, 4), dtype=bboxes.dtype)
 
 
-def bboxes_matching(rclasses, rscores, rbboxes,
+def bboxes_matching(label, scores, bboxes,
                     glabels, gbboxes,
                     matching_threshold=0.5, scope=None):
     """Matching a collection of detected boxes with groundtruth values.
@@ -247,11 +262,12 @@ def bboxes_matching(rclasses, rscores, rbboxes,
        fp_match: (N,)-shaped boolean Tensor containing with False Positives.
     """
     with tf.name_scope(scope, 'bboxes_matching_single',
-                       [rclasses, rscores, rbboxes, glabels, gbboxes]):
-        rsize = tf.size(rclasses)
-        rshape = tf.shape(rclasses)
+                       [scores, bboxes, glabels, gbboxes]):
+        rsize = tf.size(scores)
+        rshape = tf.shape(scores)
+        rlabel = tf.cast(label, glabels.dtype)
         # Number of groundtruth boxes.
-        n_gbboxes = tf.count_nonzero(glabels)
+        n_gbboxes = tf.count_nonzero(tf.equal(glabels, label))
         # Grountruth matching arrays.
         gmatch = tf.zeros(tf.shape(glabels), dtype=tf.bool)
         grange = tf.range(tf.size(glabels), dtype=tf.int32)
@@ -267,8 +283,7 @@ def bboxes_matching(rclasses, rscores, rbboxes,
 
         def m_body(i, ta_tp, ta_fp, gmatch):
             # Jaccard score with groundtruth bboxes.
-            rbbox = rbboxes[i]
-            rlabel = rclasses[i]
+            rbbox = bboxes[i]
             jaccard = bboxes_jaccard(rbbox, gbboxes)
             jaccard = jaccard * tf.cast(tf.equal(glabels, rlabel), dtype=jaccard.dtype)
 
@@ -306,7 +321,7 @@ def bboxes_matching(rclasses, rscores, rbboxes,
         return n_gbboxes, tp_match, fp_match
 
 
-def bboxes_matching_batch(rclasses, rscores, rbboxes,
+def bboxes_matching_batch(labels, scores, bboxes,
                           glabels, gbboxes,
                           matching_threshold=0.5, scope=None):
     """Matching a collection of detected boxes with groundtruth values.
@@ -317,23 +332,38 @@ def bboxes_matching_batch(rclasses, rscores, rbboxes,
       glabels, gbboxes: Groundtruth bounding boxes. May be zero padded, hence
         zero-class objects are ignored.
       matching_threshold: Threshold for a positive match.
-    Return: Tuple of:
+    Return: Tuple or Dictionaries with:
        n_gbboxes: Scalar Tensor with number of groundtruth boxes (may difer from
          size because of zero padding).
-       tp_match: (B, N)-shaped boolean Tensor containing with True Positives.
-       fp_match: (B, N)-shaped boolean Tensor containing with False Positives.
+       tp: (B, N)-shaped boolean Tensor containing with True Positives.
+       fp: (B, N)-shaped boolean Tensor containing with False Positives.
     """
+    # Dictionaries as inputs.
+    if isinstance(scores, dict) or isinstance(bboxes, dict):
+        with tf.name_scope(scope, 'bboxes_matching_batch_dict'):
+            d_n_gbboxes = {}
+            d_tp = {}
+            d_fp = {}
+            for c in labels:
+                n, tp, fp, _ = bboxes_matching_batch(c, scores[c], bboxes[c],
+                                                     glabels, gbboxes,
+                                                     matching_threshold)
+                d_n_gbboxes[c] = n
+                d_tp[c] = tp
+                d_fp[c] = fp
+            return d_n_gbboxes, d_tp, d_fp, scores
+
     with tf.name_scope(scope, 'bboxes_matching_batch',
-                       [rclasses, rscores, rbboxes, glabels, gbboxes]):
-        r = tf.map_fn(lambda x: bboxes_matching(x[0], x[1], x[2], x[3], x[4],
+                       [scores, bboxes, glabels, gbboxes]):
+        r = tf.map_fn(lambda x: bboxes_matching(labels, x[0], x[1], x[2], x[3],
                                                 matching_threshold),
-                      (rclasses, rscores, rbboxes, glabels, gbboxes),
+                      (scores, bboxes, glabels, gbboxes),
                       dtype=(tf.int64, tf.bool, tf.bool),
                       parallel_iterations=10,
                       back_prop=False,
                       swap_memory=True,
                       infer_shape=True)
-        return r[0], r[1], r[2]
+        return r[0], r[1], r[2], scores
 
 
 # =========================================================================== #
