@@ -64,7 +64,7 @@ tf.app.flags.DEFINE_integer(
 tf.app.flags.DEFINE_integer(
     'num_classes', 21, 'Number of classes to use in the dataset.')
 tf.app.flags.DEFINE_integer(
-    'batch_size', 32, 'The number of samples in each batch.')
+    'batch_size', 1, 'The number of samples in each batch.')
 tf.app.flags.DEFINE_integer(
     'max_num_batches', None,
     'Max number of batches to evaluate by default use all.')
@@ -95,7 +95,7 @@ tf.app.flags.DEFINE_float(
     'The decay to use for the moving average.'
     'If left as None, then moving averages are not used.')
 tf.app.flags.DEFINE_integer(
-    'gpu_memory_fraction', 0.1, 'GPU memory fraction to use.')
+    'gpu_memory_fraction', 0.05, 'GPU memory fraction to use.')
 
 
 FLAGS = tf.app.flags.FLAGS

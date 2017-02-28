@@ -24,7 +24,19 @@ import tf_utils
 
 slim = tf.contrib.slim
 
+# =========================================================================== #
+# SSD Network flags.
+# =========================================================================== #
+tf.app.flags.DEFINE_float(
+    'loss_alpha', 1., 'Alpha parameter in the loss function.')
+tf.app.flags.DEFINE_float(
+    'negative_ratio', 3., 'Negative ratio in the loss function.')
+tf.app.flags.DEFINE_float(
+    'match_threshold', 0.5, 'Matching threshold in the loss function.')
 
+# =========================================================================== #
+# General Flags.
+# =========================================================================== #
 tf.app.flags.DEFINE_string(
     'train_dir', '/tmp/tfmodel/',
     'Directory where checkpoints and event logs are written to.')
@@ -49,7 +61,7 @@ tf.app.flags.DEFINE_integer(
     'save_interval_secs', 600,
     'The frequency with which the model is saved, in seconds.')
 tf.app.flags.DEFINE_integer(
-    'gpu_memory_fraction', 0.8, 'GPU memory fraction to use.')
+    'gpu_memory_fraction', 0.9, 'GPU memory fraction to use.')
 
 # =========================================================================== #
 # Optimization Flags.
@@ -256,6 +268,9 @@ def main(_):
             # Add loss function.
             ssd_net.losses(logits, localisations,
                            b_gclasses, b_glocalisations, b_gscores,
+                           match_threshold=FLAGS.match_threshold,
+                           negative_ratio=FLAGS.negative_ratio,
+                           alpha=FLAGS.loss_alpha,
                            label_smoothing=FLAGS.label_smoothing)
             return end_points
 
@@ -278,9 +293,12 @@ def main(_):
             summaries.add(tf.summary.histogram('activations/' + end_point, x))
             summaries.add(tf.summary.scalar('sparsity/' + end_point,
                                             tf.nn.zero_fraction(x)))
-        # Add summaries for losses.
+        # Add summaries for losses and extra losses.
         for loss in tf.get_collection(tf.GraphKeys.LOSSES, first_clone_scope):
             summaries.add(tf.summary.scalar(loss.op.name, loss))
+        for loss in tf.get_collection('EXTRA_LOSSES', first_clone_scope):
+            summaries.add(tf.summary.scalar(loss.op.name, loss))
+
         # Add summaries for variables.
         for variable in slim.get_model_variables():
             summaries.add(tf.summary.histogram(variable.op.name, variable))
