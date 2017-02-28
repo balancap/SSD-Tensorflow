@@ -96,6 +96,8 @@ tf.app.flags.DEFINE_float(
     'If left as None, then moving averages are not used.')
 tf.app.flags.DEFINE_integer(
     'gpu_memory_fraction', 0.05, 'GPU memory fraction to use.')
+tf.app.flags.DEFINE_integer(
+    'wait_for_checkpoints', False, 'Wait for new checkpoints in the eval loop.')
 
 
 FLAGS = tf.app.flags.FLAGS
@@ -298,26 +300,45 @@ def main(_):
         else:
             num_batches = math.ceil(dataset.num_samples / float(FLAGS.batch_size))
 
-        if tf.gfile.IsDirectory(FLAGS.checkpoint_path):
-            checkpoint_path = tf.train.latest_checkpoint(FLAGS.checkpoint_path)
+        if not FLAGS.wait_for_checkpoints:
+            if tf.gfile.IsDirectory(FLAGS.checkpoint_path):
+                checkpoint_path = tf.train.latest_checkpoint(FLAGS.checkpoint_path)
+            else:
+                checkpoint_path = FLAGS.checkpoint_path
+            tf.logging.info('Evaluating %s' % checkpoint_path)
+
+            # Standard evaluation loop.
+            start = time.time()
+            slim.evaluation.evaluate_once(
+                master=FLAGS.master,
+                checkpoint_path=checkpoint_path,
+                logdir=FLAGS.eval_dir,
+                num_evals=num_batches,
+                eval_op=list(names_to_updates.values()),
+                variables_to_restore=variables_to_restore,
+                session_config=config)
+            # Log time spent.
+            elapsed = time.time()
+            elapsed = elapsed - start
+            print('Time spent : %.3f seconds.' % elapsed)
+            print('Time spent per BATCH: %.3f seconds.' % (elapsed / num_batches))
+
         else:
             checkpoint_path = FLAGS.checkpoint_path
+            tf.logging.info('Evaluating %s' % checkpoint_path)
 
-        start = time.time()
-        tf.logging.info('Evaluating %s' % checkpoint_path)
-        slim.evaluation.evaluate_once(
-            master=FLAGS.master,
-            checkpoint_path=checkpoint_path,
-            logdir=FLAGS.eval_dir,
-            num_evals=num_batches,
-            eval_op=list(names_to_updates.values()),
-            variables_to_restore=variables_to_restore,
-            session_config=config)
-        # Log time spent.
-        elapsed = time.time()
-        elapsed = elapsed - start
-        print('Time spent : %.3f seconds.' % elapsed)
-        print('Time spent per BATCH: %.3f seconds.' % (elapsed / num_batches))
+            # Waiting loop.
+            slim.evaluation_loop(
+                master=FLAGS.master,
+                checkpoint_dir=checkpoint_path,
+                logdir=FLAGS.eval_dir,
+                num_evals=num_batches,
+                eval_op=list(names_to_updates.values()),
+                variables_to_restore=variables_to_restore,
+                eval_interval_secs=60,
+                max_number_of_evaluations=None,
+                session_config=config,
+                timeout=None)
 
 
 if __name__ == '__main__':
