@@ -98,12 +98,19 @@ class SSDNet(object):
         feat_layers=['block4', 'block7', 'block8', 'block9', 'block10', 'block11'],
         feat_shapes=[(38, 38), (19, 19), (10, 10), (5, 5), (3, 3), (1, 1)],
         anchor_size_bounds=[0.15, 0.90],
+        # anchor_size_bounds=[0.20, 0.90],
         anchor_sizes=[(21., 45.),
                       (45., 99.),
                       (99., 153.),
                       (153., 207.),
                       (207., 261.),
                       (261., 315.)],
+        # anchor_sizes=[(30., 60.),
+        #               (60., 111.),
+        #               (111., 162.),
+        #               (162., 213.),
+        #               (213., 264.),
+        #               (264., 315.)],
         anchor_ratios=[[2, .5],
                        [2, .5, 3, 1./3],
                        [2, .5, 3, 1./3],
@@ -262,7 +269,7 @@ def ssd_size_bounds_to_values(size_bounds,
     max_ratio = int(size_bounds[1] * 100)
     step = int(math.floor((max_ratio - min_ratio) / (n_feat_layers - 2)))
     # Start with the following smallest sizes.
-    sizes = [[img_size * 0.07, img_size * 0.15]]
+    sizes = [[img_size * size_bounds[0] / 2, img_size * size_bounds[0]]]
     for ratio in range(min_ratio, max_ratio + 1, step):
         sizes.append((img_size * ratio / 100.,
                       img_size * (ratio + step) / 100.))
