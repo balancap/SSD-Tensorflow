@@ -187,7 +187,7 @@ def main(_):
                        b_gclasses, b_glocalisations, b_gscores)
 
         # Performing post-processing on CPU: loop-intensive, usually more efficient.
-        with tf.device('/cpu:0'):
+        with tf.device('/device:CPU:0'):
             # Detected objects from SSD output.
             localisations = ssd_net.bboxes_decode(localisations, ssd_anchors)
             rscores, rbboxes = \
@@ -216,7 +216,7 @@ def main(_):
         # =================================================================== #
         # Evaluation metrics.
         # =================================================================== #
-        with tf.device('/cpu:0'):
+        with tf.device('/device:CPU:0'):
             dict_metrics = {}
             # First add all losses.
             for loss in tf.get_collection(tf.GraphKeys.LOSSES):
@@ -290,6 +290,8 @@ def main(_):
         # =================================================================== #
         gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=FLAGS.gpu_memory_fraction)
         config = tf.ConfigProto(log_device_placement=False, gpu_options=gpu_options)
+        # config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
+
         # Number of batches...
         if FLAGS.max_num_batches:
             num_batches = FLAGS.max_num_batches

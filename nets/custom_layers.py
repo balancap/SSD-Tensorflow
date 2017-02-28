@@ -83,10 +83,12 @@ def l2_normalization(
         inputs_rank = inputs_shape.ndims
         dtype = inputs.dtype.base_dtype
         if data_format == 'NHWC':
-            norm_dim = tf.range(1, inputs_rank-1)
+            # norm_dim = tf.range(1, inputs_rank-1)
+            norm_dim = tf.range(inputs_rank-1, inputs_rank)
             params_shape = inputs_shape[-1:]
         elif data_format == 'NCHW':
-            norm_dim = tf.range(2, inputs_rank)
+            # norm_dim = tf.range(2, inputs_rank)
+            norm_dim = tf.range(1, 2)
             params_shape = (inputs_shape[1])
 
         # Normalize along spatial dimensions.
