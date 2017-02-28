@@ -202,15 +202,18 @@ class SSDNet(object):
 
     def losses(self, logits, localisations,
                gclasses, glocalisations, gscores,
+               match_threshold=0.5,
+               negative_ratio=3.,
+               alpha=1.,
                label_smoothing=0.,
                scope='ssd_losses'):
         """Define the SSD network losses.
         """
         return ssd_losses(logits, localisations,
                           gclasses, glocalisations, gscores,
-                          match_threshold=0.5,
-                          negative_ratio=3.,
-                          alpha=1.,
+                          match_threshold=match_threshold,
+                          negative_ratio=negative_ratio,
+                          alpha=alpha,
                           label_smoothing=label_smoothing,
                           scope=scope)
 

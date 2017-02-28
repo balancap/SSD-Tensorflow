@@ -22,8 +22,7 @@ python caffe_to_tensorflow.py \
 # VGG-based SSD network
 # =========================================================================== #
 DATASET_DIR=/media/paul/DataExt4/PascalVOC/dataset
-TRAIN_DIR=./logs/ssd_300_vgg_2
-CHECKPOINT_PATH=/media/paul/DataExt4/PascalVOC/training/ckpts/SSD_300x300_ft/ssd_300_vgg.ckpt
+TRAIN_DIR=./logs/ssd_300_vgg_3
 CHECKPOINT_PATH=./checkpoints/ssd_300_vgg.ckpt
 python train_ssd_network.py \
     --train_dir=${TRAIN_DIR} \
@@ -36,9 +35,24 @@ python train_ssd_network.py \
     --save_interval_secs=600 \
     --weight_decay=0.0005 \
     --optimizer=adam \
-    --learning_rate=0.01 \
+    --learning_rate=0.001 \
     --learning_rate_decay_factor=0.95 \
     --batch_size=32
+
+DATASET_DIR=/media/paul/DataExt4/PascalVOC/dataset
+TRAIN_DIR=./logs/ssd_300_vgg_3
+EVAL_DIR=${TRAIN_DIR}/eval
+python eval_ssd_network.py \
+    --eval_dir=${EVAL_DIR} \
+    --dataset_dir=${DATASET_DIR} \
+    --dataset_name=pascalvoc_2007 \
+    --dataset_split_name=test \
+    --model_name=ssd_300_vgg \
+    --checkpoint_path=${TRAIN_DIR} \
+    --wait_for_checkpoints=True \
+    --batch_size=1 \
+    --max_num_batches=500
+
 
 DATASET_DIR=/media/paul/DataExt4/PascalVOC/dataset
 EVAL_DIR=./logs/ssd_300_vgg_1_eval

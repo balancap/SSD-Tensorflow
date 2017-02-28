@@ -19,6 +19,7 @@ import sys
 import six
 import time
 
+import numpy as np
 import tensorflow as tf
 import tf_extended as tfe
 import tf_utils
@@ -95,8 +96,8 @@ tf.app.flags.DEFINE_float(
     'The decay to use for the moving average.'
     'If left as None, then moving averages are not used.')
 tf.app.flags.DEFINE_integer(
-    'gpu_memory_fraction', 0.05, 'GPU memory fraction to use.')
-tf.app.flags.DEFINE_integer(
+    'gpu_memory_fraction', 0.04, 'GPU memory fraction to use.')
+tf.app.flags.DEFINE_boolean(
     'wait_for_checkpoints', False, 'Wait for new checkpoints in the eval loop.')
 
 
@@ -252,7 +253,7 @@ def main(_):
                 v = tfe.average_precision_voc07(prec, rec)
                 summary_name = 'AP_VOC07/%s' % c
                 op = tf.summary.scalar(summary_name, v, collections=[])
-                op = tf.Print(op, [v], summary_name)
+                # op = tf.Print(op, [v], summary_name)
                 tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
                 aps_voc07[c] = v
 
@@ -260,7 +261,7 @@ def main(_):
                 v = tfe.average_precision_voc12(prec, rec)
                 summary_name = 'AP_VOC12/%s' % c
                 op = tf.summary.scalar(summary_name, v, collections=[])
-                op = tf.Print(op, [v], summary_name)
+                # op = tf.Print(op, [v], summary_name)
                 tf.add_to_collection(tf.GraphKeys.SUMMARIES, op)
                 aps_voc12[c] = v
 
@@ -328,7 +329,7 @@ def main(_):
             tf.logging.info('Evaluating %s' % checkpoint_path)
 
             # Waiting loop.
-            slim.evaluation_loop(
+            slim.evaluation.evaluation_loop(
                 master=FLAGS.master,
                 checkpoint_dir=checkpoint_path,
                 logdir=FLAGS.eval_dir,
@@ -336,7 +337,7 @@ def main(_):
                 eval_op=list(names_to_updates.values()),
                 variables_to_restore=variables_to_restore,
                 eval_interval_secs=60,
-                max_number_of_evaluations=None,
+                max_number_of_evaluations=np.inf,
                 session_config=config,
                 timeout=None)
 
