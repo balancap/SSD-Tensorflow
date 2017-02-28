@@ -107,7 +107,7 @@ Furthermore, the training script can be combined with the evaluation routine in 
 
 ### Fine-tuning a network trained on ImageNet
 
-One can also try to build a new SSD model based on standard architecture (VGG, ResNet, Inception, ...) and set up on top of it the `multibox` layers (with specific anchors, ratios, ...). For that purpose, you can fine-tune a network by only loading the weights of the original architecture, and initialize randomly the rest of network. For instance, in the case of the VGG architecture, one can start the training as following:
+One can also try to build a new SSD model based on standard architecture (VGG, ResNet, Inception, ...) and set up on top of it the `multibox` layers (with specific anchors, ratios, ...). For that purpose, you can fine-tune a network by only loading the weights of the original architecture, and initialize randomly the rest of network. For instance, in the case of the [VGG-16 architecture](http://download.tensorflow.org/models/vgg_16_2016_08_28.tar.gz), one can train a new model as following:
 ```bash
 DATASET_DIR=./tfrecords
 TRAIN_DIR=./logs/
@@ -127,6 +127,6 @@ python train_ssd_network.py \
     --learning_rate=0.0001 \
     --batch_size=32
 ```
-Hence, in the former command, the training script randomly initializes the weights in the `checkpoint_exclude_scopes` and load from the checkpoint file the rest.
+Hence, in the former command, the training script randomly initializes the weights belonging to the `checkpoint_exclude_scopes` and load from the checkpoint file `vgg_16.ckpt` the remaining part of the network.
 
-Note that a number of pre-trained weights of popular architectures can be found on this page: [https://github.com/tensorflow/models/tree/master/slim].
+Note that a number of pre-trained weights of popular architectures can be found on [TF-Slim models page](https://github.com/tensorflow/models/tree/master/slim).
