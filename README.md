@@ -91,20 +91,33 @@ CHECKPOINT_PATH=./checkpoints/ssd_300_vgg.ckpt
 python train_ssd_network.py \
     --train_dir=${TRAIN_DIR} \
     --dataset_dir=${DATASET_DIR} \
-    --dataset_name=pascalvoc_2007 \
+    --dataset_name=pascalvoc_2012 \
     --dataset_split_name=train \
     --model_name=ssd_300_vgg \
     --checkpoint_path=${CHECKPOINT_PATH} \
     --save_summaries_secs=60 \
     --save_interval_secs=600 \
-    --weight_decay=0.00001 \
-    --optimizer=rmsprop \
-    --learning_rate=0.0001 \
+    --weight_decay=0.0005 \
+    --optimizer=adam \
+    --learning_rate=0.001 \
     --batch_size=32
 ```
 Note that in addition to the training script flags, one may also want to experiment with data augmentation parameters (random cropping, resolution, ...) in `ssd_vgg_preprocessing.py` or/and network parameters (feature layers, anchors boxes, ...) in `ssd_vgg_300/512.py`
 
-Furthermore, the training script can be combined with the evaluation routine in order to monitor the performance of saved checkpoints on a validation dataset. For that purpose, one can pass to training and validation scripts a GPU memory upper limit such that both can run in parallel on the same device.
+Furthermore, the training script can be combined with the evaluation routine in order to monitor the performance of saved checkpoints on a validation dataset. For that purpose, one can pass to training and validation scripts a GPU memory upper limit such that both can run in parallel on the same device. If some GPU memory is available for the evaluation script, the former can be run in parallel as follows:
+```bash
+EVAL_DIR=${TRAIN_DIR}/eval
+python eval_ssd_network.py \
+    --eval_dir=${EVAL_DIR} \
+    --dataset_dir=${DATASET_DIR} \
+    --dataset_name=pascalvoc_2007 \
+    --dataset_split_name=test \
+    --model_name=ssd_300_vgg \
+    --checkpoint_path=${TRAIN_DIR} \
+    --wait_for_checkpoints=True \
+    --batch_size=1 \
+    --max_num_batches=500
+```
 
 ### Fine-tuning a network trained on ImageNet
 
