@@ -42,21 +42,21 @@ DATA_FORMAT = 'NHWC'
 # =========================================================================== #
 # SSD evaluation Flags.
 # =========================================================================== #
-tf.app.flags.DEFINE_integer(
+tf.app.flags.DEFINE_float(
     'select_threshold', 0.01, 'Selection threshold.')
 tf.app.flags.DEFINE_integer(
     'select_top_k', 400, 'Select top-k detected bounding boxes.')
 tf.app.flags.DEFINE_integer(
     'keep_top_k', 200, 'Keep top-k detected objects.')
-tf.app.flags.DEFINE_integer(
+tf.app.flags.DEFINE_float(
     'nms_threshold', 0.45, 'Non-Maximum Selection threshold.')
-tf.app.flags.DEFINE_integer(
+tf.app.flags.DEFINE_float(
     'matching_threshold', 0.5, 'Matching threshold with groundtruth objects.')
 tf.app.flags.DEFINE_integer(
     'eval_resize', 4, 'Image resizing: None / CENTRAL_CROP / PAD_AND_RESIZE / WARP_RESIZE.')
 tf.app.flags.DEFINE_integer(
     'eval_image_size', None, 'Eval image size.')
-tf.app.flags.DEFINE_integer(
+tf.app.flags.DEFINE_boolean(
     'remove_difficult', True, 'Remove difficult objects from evaluation.')
 
 # =========================================================================== #
@@ -95,7 +95,7 @@ tf.app.flags.DEFINE_float(
     'moving_average_decay', None,
     'The decay to use for the moving average.'
     'If left as None, then moving averages are not used.')
-tf.app.flags.DEFINE_integer(
+tf.app.flags.DEFINE_float(
     'gpu_memory_fraction', 0.04, 'GPU memory fraction to use.')
 tf.app.flags.DEFINE_boolean(
     'wait_for_checkpoints', False, 'Wait for new checkpoints in the eval loop.')
