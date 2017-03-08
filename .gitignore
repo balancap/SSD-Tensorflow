@@ -18,3 +18,4 @@ __pycache__/
 *.log
 
 checkpoints/VGG_VOC0712_SSD_*
+checkpoints/vgg_16.ckpt
