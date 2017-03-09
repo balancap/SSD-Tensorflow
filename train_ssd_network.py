@@ -141,7 +141,7 @@ tf.app.flags.DEFINE_integer(
     'evaluate the VGG and ResNet architectures which do not use a background '
     'class for the ImageNet dataset.')
 tf.app.flags.DEFINE_string(
-    'model_name', 'inception_v3', 'The name of the architecture to train.')
+    'model_name', 'ssd_300_vgg', 'The name of the architecture to train.')
 tf.app.flags.DEFINE_string(
     'preprocessing_name', None, 'The name of the preprocessing to use. If left '
     'as `None`, then the model_name flag is used.')
@@ -158,6 +158,9 @@ tf.app.flags.DEFINE_integer('max_number_of_steps', None,
 tf.app.flags.DEFINE_string(
     'checkpoint_path', None,
     'The path to a checkpoint from which to fine-tune.')
+tf.app.flags.DEFINE_string(
+    'checkpoint_model_scope', None,
+    'Model scope in the checkpoint. None if the same as the trained model.')
 tf.app.flags.DEFINE_string(
     'checkpoint_exclude_scopes', None,
     'Comma-separated list of scopes of variables to exclude when restoring '

@@ -179,6 +179,10 @@ def add_variables_summaries(learning_rate):
     return summaries
 
 
+def update_model_scope(var, ckpt_scope, new_scope):
+    return var.op.name.replace(new_scope,'vgg_16')
+
+
 def get_init_fn(flags):
     """Returns a function run by the chief worker to warm-start the training.
     Note that the init_fn is only run when initializing the model during the very
@@ -211,6 +215,13 @@ def get_init_fn(flags):
                 break
         if not excluded:
             variables_to_restore.append(var)
+    # Change model scope if necessary.
+    if flags.checkpoint_model_scope is not None:
+        variables_to_restore = \
+            {var.op.name.replace(flags.model_name,
+                                 flags.checkpoint_model_scope): var
+             for var in variables_to_restore}
+
 
     if tf.gfile.IsDirectory(flags.checkpoint_path):
         checkpoint_path = tf.train.latest_checkpoint(flags.checkpoint_path)
