@@ -600,7 +600,7 @@ def ssd_losses(logits, localisations,
             dtype = logits[i].dtype
             with tf.name_scope('block_%i' % i):
                 # Sizing weight...
-                wsize = tfe.get_shape(logits, rank=5)
+                wsize = tfe.get_shape(logits[i], rank=5)
                 wsize = wsize[1] * wsize[2] * wsize[3]
 
                 # Positive mask.
