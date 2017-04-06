@@ -656,7 +656,7 @@ def ssd_losses(logits, localisations,
                     # Add localization loss: smooth L1, L2, ...
                     with tf.name_scope('localization'):
                         # Weights Tensor: positive mask + random negative.
-                        weights = tf.expand_dims(alpha * fpmask, axis=-1)
+                        weights = tf.expand_dims(alpha * wsize * fpmask, axis=-1)
                         loss = custom_layers.abs_smooth(localisations[i] - glocalisations[i])
                         loss = tf.losses.compute_weighted_loss(loss, weights)
                         l_loc.append(loss)
