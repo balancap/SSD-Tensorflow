@@ -633,9 +633,9 @@ def ssd_losses(logits, localisations,
                     n_neg = tf.minimum(n_neg, max_neg_entries)
 
                     val, idxes = tf.nn.top_k(-nvalues_flat, k=n_neg)
-                    minval = -val[-1]
+                    max_hard_pred = -val[-1]
                     # Final negative mask.
-                    nmask = tf.logical_and(nmask, nvalues < -minval)
+                    nmask = tf.logical_and(nmask, nvalues < max_hard_pred)
                     fnmask = tf.cast(nmask, dtype)
 
                     # Add cross-entropy loss.
