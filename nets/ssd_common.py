@@ -125,11 +125,11 @@ def tf_ssd_bboxes_encode_layer(labels,
         feat_xmax = fmask * bbox[3] + (1 - fmask) * feat_xmax
 
         # Check no annotation label: ignore these anchors...
-        interscts = intersection_with_anchors(bbox)
-        mask = tf.logical_and(interscts > ignore_threshold,
-                              label == no_annotation_label)
-        # Replace scores by -1.
-        feat_scores = tf.where(mask, -tf.cast(mask, dtype), feat_scores)
+        # interscts = intersection_with_anchors(bbox)
+        # mask = tf.logical_and(interscts > ignore_threshold,
+        #                       label == no_annotation_label)
+        # # Replace scores by -1.
+        # feat_scores = tf.where(mask, -tf.cast(mask, dtype), feat_scores)
 
         return [i+1, feat_labels, feat_scores,
                 feat_ymin, feat_xmin, feat_ymax, feat_xmax]
