@@ -5,11 +5,12 @@ nets/__pycache__/
 preprocessing/__pycache__/
 
 notebooks/.ipynb_checkpoints/
-ssd-tensorflow.sublime-workspace
-ssd-tensorflow.sublime-project
 
 checkpoints/ssd_300_vgg.ckpt.data-00000-of-00001
 checkpoints/ssd_300_vgg.ckpt.index
+checkpoints/models/*
+checkpoints/VGG_VOC0712_SSD_*
+checkpoints/vgg_16.ckpt
 
 logs/
 .ipynb_checkpoints/
@@ -17,5 +18,5 @@ __pycache__/
 
 *.log
 
-checkpoints/VGG_VOC0712_SSD_*
-checkpoints/vgg_16.ckpt
+ssd-tensorflow.sublime-workspace
+ssd-tensorflow.sublime-project
