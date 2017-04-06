@@ -96,7 +96,7 @@ tf.app.flags.DEFINE_float(
     'The decay to use for the moving average.'
     'If left as None, then moving averages are not used.')
 tf.app.flags.DEFINE_float(
-    'gpu_memory_fraction', 0.04, 'GPU memory fraction to use.')
+    'gpu_memory_fraction', 0.1, 'GPU memory fraction to use.')
 tf.app.flags.DEFINE_boolean(
     'wait_for_checkpoints', False, 'Wait for new checkpoints in the eval loop.')
 
