@@ -64,7 +64,7 @@ DIRECTORY_IMAGES = 'JPEGImages/'
 
 # TFRecords convertion parameters.
 RANDOM_SEED = 4242
-SAMPLES_PER_FILES = 100
+SAMPLES_PER_FILES = 200
 
 
 def _process_image(directory, name):
@@ -214,8 +214,8 @@ def run(dataset_dir, output_dir, name='voc_train', shuffling=False):
                 sys.stdout.flush()
 
                 filename = filenames[i]
-                name = filename[:-4]
-                _add_to_tfrecord(dataset_dir, name, tfrecord_writer)
+                img_name = filename[:-4]
+                _add_to_tfrecord(dataset_dir, img_name, tfrecord_writer)
                 i += 1
                 j += 1
             fidx += 1
