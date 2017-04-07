@@ -180,8 +180,8 @@ def _add_to_tfrecord(dataset_dir, name, tfrecord_writer):
     tfrecord_writer.write(example.SerializeToString())
 
 
-def _get_output_filename(output_dir, name):
-    return '%s/%s.tfrecord' % (output_dir, name)
+def _get_output_filename(output_dir, name, idx):
+    return '%s/%s_%03d.tfrecord' % (output_dir, name, idx)
 
 
 def run(dataset_dir, output_dir, name='voc_train', shuffling=False):
@@ -194,25 +194,31 @@ def run(dataset_dir, output_dir, name='voc_train', shuffling=False):
     if not tf.gfile.Exists(dataset_dir):
         tf.gfile.MakeDirs(dataset_dir)
 
-    tf_filename = _get_output_filename(output_dir, name)
-    if tf.gfile.Exists(tf_filename):
-        print('Dataset files already exist. Exiting without re-creating them.')
-        return
     # Dataset filenames, and shuffling.
     path = os.path.join(dataset_dir, DIRECTORY_ANNOTATIONS)
     filenames = sorted(os.listdir(path))
     if shuffling:
-        random.seed(12345)
+        random.seed(RANDOM_SEED)
         random.shuffle(filenames)
 
     # Process dataset files.
-    with tf.python_io.TFRecordWriter(tf_filename) as tfrecord_writer:
-        for i, filename in enumerate(filenames):
-            sys.stdout.write('\r>> Converting image %d/%d' % (i + 1, len(filenames)))
-            sys.stdout.flush()
+    i = 0
+    fidx = 0
+    while i < len(filenames):
+        # Open new TFRecord file.
+        tf_filename = _get_output_filename(output_dir, name, fidx)
+        with tf.python_io.TFRecordWriter(tf_filename) as tfrecord_writer:
+            j = 0
+            while i < len(filenames) and j < SAMPLES_PER_FILES:
+                sys.stdout.write('\r>> Converting image %d/%d' % (i+1, len(filenames)))
+                sys.stdout.flush()
 
-            name = filename[:-4]
-            _add_to_tfrecord(dataset_dir, name, tfrecord_writer)
+                filename = filenames[i]
+                name = filename[:-4]
+                _add_to_tfrecord(dataset_dir, name, tfrecord_writer)
+                i += 1
+                j += 1
+            fidx += 1
 
     # Finally, write the labels file:
     # labels_to_class_names = dict(zip(range(len(_CLASS_NAMES)), _CLASS_NAMES))
