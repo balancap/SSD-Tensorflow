@@ -58,8 +58,13 @@ import xml.etree.ElementTree as ET
 from datasets.dataset_utils import int64_feature, float_feature, bytes_feature
 from datasets.pascalvoc_common import VOC_LABELS
 
+# Original dataset organisation.
 DIRECTORY_ANNOTATIONS = 'Annotations/'
 DIRECTORY_IMAGES = 'JPEGImages/'
+
+# TFRecords convertion parameters.
+RANDOM_SEED = 4242
+SAMPLES_PER_FILES = 100
 
 
 def _process_image(directory, name):
@@ -138,7 +143,7 @@ def _convert_to_example(image_data, labels, labels_text, bboxes, shape,
     for b in bboxes:
         assert len(b) == 4
         # pylint: disable=expression-not-assigned
-        [l.append(point) for l, point in zip([xmin, ymin, xmax, ymax], b)]
+        [l.append(point) for l, point in zip([ymin, xmin, ymax, xmax], b)]
         # pylint: enable=expression-not-assigned
 
     image_format = b'JPEG'
