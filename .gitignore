@@ -1,9 +1,11 @@
 # Directories.
+__pycache__/
 datasets/__pycache__/
 deployment/__pycache__/
 nets/__pycache__/
 preprocessing/__pycache__/
 
+.ipynb_checkpoints/
 notebooks/.ipynb_checkpoints/
 
 checkpoints/ssd_300_vgg.ckpt.data-00000-of-00001
@@ -11,12 +13,12 @@ checkpoints/ssd_300_vgg.ckpt.index
 checkpoints/models/*
 checkpoints/VGG_VOC0712_SSD_*
 checkpoints/vgg_16.ckpt
+checkpoints/model.ckpt-*
 
 logs/
-.ipynb_checkpoints/
-__pycache__/
-
 *.log
+nohup.out
 
 ssd-tensorflow.sublime-workspace
 ssd-tensorflow.sublime-project
+
