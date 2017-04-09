@@ -589,18 +589,23 @@ def ssd_losses(logits, localisations,
         batch_size = lshape[0]
 
         # Flatten out all vectors!
+        flogits = []
+        fgclasses = []
+        fgscores = []
+        flocalisations = []
+        fglocalisations = []
         for i in range(len(logits)):
-            logits[i] = tf.reshape(logits[i], [-1, num_classes])
-            gclasses[i] = tf.reshape(gclasses[i], [-1])
-            gscores[i] = tf.reshape(gscores[i], [-1])
-            localisations[i] = tf.reshape(localisations[i], [-1, 4])
-            glocalisations[i] = tf.reshape(glocalisations[i], [-1, 4])
+            flogits.append(tf.reshape(logits[i], [-1, num_classes]))
+            fgclasses.append(tf.reshape(gclasses[i], [-1]))
+            fgscores.append(tf.reshape(gscores[i], [-1]))
+            flocalisations.append(tf.reshape(localisations[i], [-1, 4]))
+            fglocalisations.append(tf.reshape(glocalisations[i], [-1, 4]))
         # And concat the crap!
-        logits = tf.concat(logits, axis=0)
-        gclasses = tf.concat(gclasses, axis=0)
-        gscores = tf.concat(gscores, axis=0)
-        localisations = tf.concat(localisations, axis=0)
-        glocalisations = tf.concat(glocalisations, axis=0)
+        logits = tf.concat(flogits, axis=0)
+        gclasses = tf.concat(fgclasses, axis=0)
+        gscores = tf.concat(fgscores, axis=0)
+        localisations = tf.concat(flocalisations, axis=0)
+        glocalisations = tf.concat(fglocalisations, axis=0)
         dtype = logits.dtype
 
         # Compute positive matching mask...
@@ -633,30 +638,25 @@ def ssd_losses(logits, localisations,
         with tf.name_scope('cross_entropy_pos'):
             loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits,
                                                                   labels=gclasses)
-            loss = tf.reduce_sum(loss * fpmask) / batch_size
+            loss = tf.truediv(tf.reduce_sum(loss * fpmask), batch_size, name='value')
             tf.losses.add_loss(loss)
-            # loss = tf.losses.compute_weighted_loss(loss, fpmask)
 
         with tf.name_scope('cross_entropy_neg'):
             loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits,
                                                                   labels=no_classes)
-            loss = tf.reduce_sum(loss * fnmask) / batch_size
+            loss = tf.truediv(tf.reduce_sum(loss * fnmask), batch_size, name='value')
             tf.losses.add_loss(loss)
-            # loss = tf.losses.compute_weighted_loss(loss, fnmask)
 
         # Add localization loss: smooth L1, L2, ...
         with tf.name_scope('localization'):
             # Weights Tensor: positive mask + random negative.
             weights = tf.expand_dims(alpha * fpmask, axis=-1)
             loss = custom_layers.abs_smooth(localisations - glocalisations)
-            loss = tf.reduce_sum(loss * weights) / batch_size
+            loss = tf.truediv(tf.reduce_sum(loss * weights), batch_size, name='value')
             tf.losses.add_loss(loss)
-            # loss = tf.losses.compute_weighted_loss(loss, weights)
 
 
-
-
-def ssd_losses_new(logits, localisations,
+def ssd_losses_old(logits, localisations,
                    gclasses, glocalisations, gscores,
                    match_threshold=0.5,
                    negative_ratio=3.,
