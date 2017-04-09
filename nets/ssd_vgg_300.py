@@ -473,9 +473,11 @@ def ssd_net(inputs,
         # Block 6: let's dilate the hell out of it!
         net = slim.conv2d(net, 1024, [3, 3], rate=6, scope='conv6')
         end_points['block6'] = net
+        net = tf.nn.dropout(net, 0.6)
         # Block 7: 1x1 conv. Because the fuck.
         net = slim.conv2d(net, 1024, [1, 1], scope='conv7')
         end_points['block7'] = net
+        net = tf.nn.dropout(net, 0.5)
 
         # Block 8/9/10/11: 1x1 and 3x3 convolutions stride 2 (except lasts).
         end_point = 'block8'
@@ -588,11 +590,11 @@ def ssd_losses(logits, localisations,
 
         # Flatten out all vectors!
         for i in range(len(logits)):
-            logits = tf.reshape(logits, [-1, num_classes])
-            gclasses = tf.reshape(gclasses, [-1])
-            gscores = tf.reshape(gscores, [-1])
-            localisations = tf.reshape(localisations, [-1, 4])
-            glocalisations = tf.reshape(glocalisations, [-1, 4])
+            logits[i] = tf.reshape(logits[i], [-1, num_classes])
+            gclasses[i] = tf.reshape(gclasses[i], [-1])
+            gscores[i] = tf.reshape(gscores[i], [-1])
+            localisations[i] = tf.reshape(localisations[i], [-1, 4])
+            glocalisations[i] = tf.reshape(glocalisations[i], [-1, 4])
         # And concat the crap!
         logits = tf.concat(logits, axis=0)
         gclasses = tf.concat(gclasses, axis=0)
@@ -631,21 +633,24 @@ def ssd_losses(logits, localisations,
         with tf.name_scope('cross_entropy_pos'):
             loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits,
                                                                   labels=gclasses)
-            tf.add_loss(loss * fpmask)
+            loss = tf.reduce_sum(loss * fpmask) / batch_size
+            tf.losses.add_loss(loss)
             # loss = tf.losses.compute_weighted_loss(loss, fpmask)
 
         with tf.name_scope('cross_entropy_neg'):
             loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits,
                                                                   labels=no_classes)
-            tf.add_loss(loss * fnmask)
+            loss = tf.reduce_sum(loss * fnmask) / batch_size
+            tf.losses.add_loss(loss)
             # loss = tf.losses.compute_weighted_loss(loss, fnmask)
 
         # Add localization loss: smooth L1, L2, ...
         with tf.name_scope('localization'):
             # Weights Tensor: positive mask + random negative.
             weights = tf.expand_dims(alpha * fpmask, axis=-1)
-            loss = custom_layers.abs_smooth(localisations[i] - glocalisations[i])
-            tf.add_loss(loss * weights)
+            loss = custom_layers.abs_smooth(localisations - glocalisations)
+            loss = tf.reduce_sum(loss * weights) / batch_size
+            tf.losses.add_loss(loss)
             # loss = tf.losses.compute_weighted_loss(loss, weights)
 
 
