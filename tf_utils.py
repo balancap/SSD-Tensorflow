@@ -227,7 +227,7 @@ def get_init_fn(flags):
         checkpoint_path = tf.train.latest_checkpoint(flags.checkpoint_path)
     else:
         checkpoint_path = flags.checkpoint_path
-    tf.logging.info('Fine-tuning from %s' % checkpoint_path)
+    tf.logging.info('Fine-tuning from %s. Ignoring missing vars: %s' % (checkpoint_path, flags.ignore_missing_vars))
 
     return slim.assign_from_checkpoint_fn(
         checkpoint_path,
