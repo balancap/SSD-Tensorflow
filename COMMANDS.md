@@ -127,6 +127,25 @@ python train_ssd_network.py \
     --learning_rate_decay_factor=0.94 \
     --batch_size=32
 
+DATASET_DIR=/media/paul/DataExt4/PascalVOC/dataset
+TRAIN_DIR=/media/paul/DataExt4/PascalVOC/training/logs/ssd_300_vgg_2
+CHECKPOINT_PATH=./checkpoints/vgg_16.ckpt
+CHECKPOINT_PATH=media/paul/DataExt4/PascalVOC/training/logs/ssd_300_vgg_1/
+python train_ssd_network.py \
+    --train_dir=${TRAIN_DIR} \
+    --dataset_dir=${DATASET_DIR} \
+    --dataset_name=pascalvoc_2012 \
+    --dataset_split_name=train \
+    --model_name=ssd_300_vgg \
+    --checkpoint_path=${CHECKPOINT_PATH} \
+    --save_summaries_secs=60 \
+    --save_interval_secs=600 \
+    --weight_decay=0.0005 \
+    --optimizer=adam \
+    --learning_rate=0.0005 \
+    --learning_rate_decay_factor=0.96 \
+    --batch_size=32
+
 EVAL_DIR=${TRAIN_DIR}/eval
 python eval_ssd_network.py \
     --eval_dir=${EVAL_DIR} \
