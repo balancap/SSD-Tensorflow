@@ -180,6 +180,7 @@ def distorted_bounding_box_crop(image,
                                 aspect_ratio_range=(0.9, 1.1),
                                 area_range=(0.1, 1.0),
                                 max_attempts=200,
+                                clip_bboxes=True,
                                 scope=None):
     """Generates cropped_image using a one of the bboxes randomly distorted.
 
@@ -226,7 +227,8 @@ def distorted_bounding_box_crop(image,
         # Update bounding boxes: resize and filter out.
         bboxes = tfe.bboxes_resize(distort_bbox, bboxes)
         labels, bboxes = tfe.bboxes_filter_overlap(labels, bboxes,
-                                                   BBOX_CROP_OVERLAP)
+                                                   threshold=BBOX_CROP_OVERLAP,
+                                                   assign_negative=False)
         return cropped_image, labels, bboxes, distort_bbox
 
 

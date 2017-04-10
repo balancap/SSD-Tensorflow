@@ -129,6 +129,9 @@ def bboxes_clip(bbox_ref, bboxes, scope=None):
         xmin = tf.maximum(bboxes[1], bbox_ref[1])
         ymax = tf.minimum(bboxes[2], bbox_ref[2])
         xmax = tf.minimum(bboxes[3], bbox_ref[3])
+        # Double check! Empty boxes when no-intersection.
+        ymin = tf.minimum(ymin, ymax)
+        xmin = tf.minimum(xmin, xmax)
         bboxes = tf.transpose(tf.stack([ymin, xmin, ymax, xmax], axis=0))
         return bboxes
 
@@ -402,20 +405,26 @@ def bboxes_filter_center(labels, bboxes, margins=[0., 0., 0., 0.],
         return labels, bboxes
 
 
-def bboxes_filter_overlap(labels, bboxes, threshold=0.5,
+def bboxes_filter_overlap(labels, bboxes,
+                          threshold=0.5, assign_negative=False,
                           scope=None):
-    """Filter out bounding boxes based on overlap with reference
-    box [0, 0, 1, 1].
+    """Filter out bounding boxes based on (relative )overlap with reference
+    box [0, 0, 1, 1].  Remove completely bounding boxes, or assign negative
+    labels to the one outside (useful for latter processing...).
 
     Return:
-      labels, bboxes: Filtered elements.
+      labels, bboxes: Filtered (or newly assigned) elements.
     """
     with tf.name_scope(scope, 'bboxes_filter', [labels, bboxes]):
         scores = bboxes_intersection(tf.constant([0, 0, 1, 1], bboxes.dtype),
                                      bboxes)
         mask = scores > threshold
-        labels = tf.boolean_mask(labels, mask)
-        bboxes = tf.boolean_mask(bboxes, mask)
+        if assign_negative:
+            labels = tf.where(mask, labels, -labels)
+            # bboxes = tf.where(mask, bboxes, bboxes)
+        else:
+            labels = tf.boolean_mask(labels, mask)
+            bboxes = tf.boolean_mask(bboxes, mask)
         return labels, bboxes
 
 
