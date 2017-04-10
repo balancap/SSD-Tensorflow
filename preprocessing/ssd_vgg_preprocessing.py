@@ -39,8 +39,9 @@ _G_MEAN = 117.
 _B_MEAN = 104.
 
 # Some training pre-processing parameters.
-BBOX_CROP_OVERLAP = 0.3        # Minimum overlap to keep a bbox after cropping.
-CROP_RATIO_RANGE = (0.5, 2.)  # Distortion ratio during cropping.
+BBOX_CROP_OVERLAP = 0.5         # Minimum overlap to keep a bbox after cropping.
+MIN_OBJECT_COVERED = 0.25
+CROP_RATIO_RANGE = (0.6, 1.67)  # Distortion ratio during cropping.
 EVAL_SIZE = (300, 300)
 
 
@@ -175,10 +176,10 @@ def distort_color(image, color_ordering=0, fast_mode=True, scope=None):
 def distorted_bounding_box_crop(image,
                                 labels,
                                 bboxes,
-                                min_object_covered=0.1,
+                                min_object_covered=0.3,
                                 aspect_ratio_range=(0.9, 1.1),
                                 area_range=(0.1, 1.0),
-                                max_attempts=500,
+                                max_attempts=200,
                                 scope=None):
     """Generates cropped_image using a one of the bboxes randomly distorted.
 
@@ -267,6 +268,7 @@ def preprocess_for_train(image, labels, bboxes,
         dst_image = image
         dst_image, labels, bboxes, distort_bbox = \
             distorted_bounding_box_crop(image, labels, bboxes,
+                                        min_object_covered=MIN_OBJECT_COVERED,
                                         aspect_ratio_range=CROP_RATIO_RANGE)
         # Resize image to output size.
         dst_image = tf_image.resize_image(dst_image, out_shape,
