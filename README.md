@@ -124,7 +124,7 @@ python eval_ssd_network.py \
 One can also try to build a new SSD model based on standard architecture (VGG, ResNet, Inception, ...) and set up on top of it the `multibox` layers (with specific anchors, ratios, ...). For that purpose, you can fine-tune a network by only loading the weights of the original architecture, and initialize randomly the rest of network. For instance, in the case of the [VGG-16 architecture](http://download.tensorflow.org/models/vgg_16_2016_08_28.tar.gz), one can train a new model as following:
 ```bash
 DATASET_DIR=./tfrecords
-TRAIN_DIR=./logs/
+TRAIN_DIR=./log/
 CHECKPOINT_PATH=./checkpoints/vgg_16.ckpt
 python train_ssd_network.py \
     --train_dir=${TRAIN_DIR} \
@@ -135,13 +135,35 @@ python train_ssd_network.py \
     --checkpoint_path=${CHECKPOINT_PATH} \
     --checkpoint_model_scope=vgg_16 \
     --checkpoint_exclude_scopes=ssd_300_vgg/conv6,ssd_300_vgg/conv7,ssd_300_vgg/block8,ssd_300_vgg/block9,ssd_300_vgg/block10,ssd_300_vgg/block11,ssd_300_vgg/block4_box,ssd_300_vgg/block7_box,ssd_300_vgg/block8_box,ssd_300_vgg/block9_box,ssd_300_vgg/block10_box,ssd_300_vgg/block11_box \
+    --trainable_scopes=ssd_300_vgg/conv6,ssd_300_vgg/conv7,ssd_300_vgg/block8,ssd_300_vgg/block9,ssd_300_vgg/block10,ssd_300_vgg/block11,ssd_300_vgg/block4_box,ssd_300_vgg/block7_box,ssd_300_vgg/block8_box,ssd_300_vgg/block9_box,ssd_300_vgg/block10_box,ssd_300_vgg/block11_box \
     --save_summaries_secs=60 \
     --save_interval_secs=600 \
     --weight_decay=0.0005 \
-    --optimizer=rmsprop \
-    --learning_rate=0.0001 \
+    --optimizer=adam \
+    --learning_rate=0.001 \
+    --learning_rate_decay_factor=0.94 \
     --batch_size=32
 ```
-Hence, in the former command, the training script randomly initializes the weights belonging to the `checkpoint_exclude_scopes` and load from the checkpoint file `vgg_16.ckpt` the remaining part of the network.
+Hence, in the former command, the training script randomly initializes the weights belonging to the `checkpoint_exclude_scopes` and load from the checkpoint file `vgg_16.ckpt` the remaining part of the network. Note that we also specify with the `trainable_scopes` parameter to first only train the new SSD components and left the rest of VGG network unchanged. Once the network has converged to a good first result (~0.5 mAP for instance), you can fine-tuned the complete network as following:
+```bash
+DATASET_DIR=./tfrecords
+TRAIN_DIR=./log_finetune/
+CHECKPOINT_PATH=./log/model.ckpt-N
+python train_ssd_network.py \
+    --train_dir=${TRAIN_DIR} \
+    --dataset_dir=${DATASET_DIR} \
+    --dataset_name=pascalvoc_2007 \
+    --dataset_split_name=train \
+    --model_name=ssd_300_vgg \
+    --checkpoint_path=${CHECKPOINT_PATH} \
+    --checkpoint_model_scope=vgg_16 \
+    --save_summaries_secs=60 \
+    --save_interval_secs=600 \
+    --weight_decay=0.0005 \
+    --optimizer=adam \
+    --learning_rate=0.00001 \
+    --learning_rate_decay_factor=0.94 \
+    --batch_size=32
+```
 
-Note that a number of pre-trained weights of popular architectures can be found on [TF-Slim models page](https://github.com/tensorflow/models/tree/master/slim).
+A number of pre-trained weights of popular deep architectures can be found on [TF-Slim models page](https://github.com/tensorflow/models/tree/master/slim).
