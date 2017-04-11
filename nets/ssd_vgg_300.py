@@ -519,7 +519,6 @@ def ssd_net(inputs,
             localisations.append(l)
 
         return predictions, localisations, logits, end_points
-ssd_net.default_image_size = 300
 
 
 def ssd_arg_scope(weight_decay=0.0005, data_format='NHWC'):
