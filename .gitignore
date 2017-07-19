@@ -15,6 +15,12 @@ checkpoints/VGG_VOC0712_SSD_*
 checkpoints/vgg_16.ckpt
 checkpoints/model.ckpt-*
 
+./VOC2007/*
+./idea/workspace.xml
+.DS_Store
+./checkpoints/.DS_Store
+.tfrecords/.
+
 logs/
 *.log
 nohup.out
