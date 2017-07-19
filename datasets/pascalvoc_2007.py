@@ -19,7 +19,7 @@ from datasets import pascalvoc_common
 
 slim = tf.contrib.slim
 
-FILE_PATTERN = 'voc_2007_%s_*.tfrecord'
+FILE_PATTERN = 'voc_2007_%s_*.tfrecords'
 ITEMS_TO_DESCRIPTIONS = {
     'image': 'A color image of varying height and width.',
     'shape': 'Shape of the image',
