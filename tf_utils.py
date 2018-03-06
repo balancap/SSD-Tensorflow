@@ -14,6 +14,7 @@
 # ==============================================================================
 """Diverse TensorFlow utils, for training, evaluation and so on!
 """
+from __future__ import print_function
 import os
 from pprint import pprint
 
