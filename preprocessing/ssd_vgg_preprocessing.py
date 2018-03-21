@@ -261,22 +261,18 @@ def preprocess_for_train(image, labels, bboxes,
             image = tf.image.convert_image_dtype(image, dtype=tf.float32)
         tf_summary_image(image, bboxes, 'image_with_bboxes')
 
+        # Distort image and bounding boxes.
+        image, bboxes = control_flow_ops.cond(tf.random_uniform([1], minval=0., maxval=1., dtype=tf.float32)[0] < 0.3, lambda: (image, bboxes), lambda: tf_image.ssd_random_expand(image, bboxes, tf.random_uniform([1], minval=2, maxval=4, dtype=tf.int32)[0]))
+        tf_summary_image(image, bboxes, 'image_on_canvas')
+
+        # Distort image and bounding boxes.
+        dst_image, labels, bboxes = tf_image.ssd_random_sample_patch(image, labels, bboxes)
+        tf_summary_image(dst_image, bboxes, 'image_shape_distorted')
+
         # # Remove DontCare labels.
         # labels, bboxes = ssd_common.tf_bboxes_filter_labels(out_label,
         #                                                     labels,
         #                                                     bboxes)
-
-        # Distort image and bounding boxes.
-        dst_image = image
-        dst_image, labels, bboxes, distort_bbox = \
-            distorted_bounding_box_crop(image, labels, bboxes,
-                                        min_object_covered=MIN_OBJECT_COVERED,
-                                        aspect_ratio_range=CROP_RATIO_RANGE)
-        # Resize image to output size.
-        dst_image = tf_image.resize_image(dst_image, out_shape,
-                                          method=tf.image.ResizeMethod.BILINEAR,
-                                          align_corners=False)
-        tf_summary_image(dst_image, bboxes, 'image_shape_distorted')
 
         # Randomly flip the image horizontally.
         dst_image, bboxes = tf_image.random_flip_left_right(dst_image, bboxes)
