@@ -229,6 +229,8 @@ def main(_):
                     common_queue_min=10 * FLAGS.batch_size,
                     shuffle=True)
             # Get for SSD network: image, labels, bboxes.
+            #slim.dataset_data_provider.DatasetDataProvider解读，https://blog.csdn.net/weixin_35653315/article/details/71023596
+            #一次只返回一个img，需要组成batch进行训练！！！
             [image, shape, glabels, gbboxes] = provider.get(['image', 'shape',
                                                              'object/label',
                                                              'object/bbox'])
