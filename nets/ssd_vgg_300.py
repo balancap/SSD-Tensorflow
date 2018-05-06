@@ -91,6 +91,7 @@ class SSDNet(object):
       conv11 ==> 1 x 1
     The default image size used to train this network is 300x300.
     """
+    #注意每个参数多代表的含义，注意这儿的anchor_size_bounds和anchor_sizes不匹配，因为根据anchor_sizes的比例，我们可以得到Smin和Smax为[0.07,0.87]
     default_params = SSDParams(
         img_shape=(300, 300),
         num_classes=21,
@@ -117,6 +118,7 @@ class SSDNet(object):
                        [2, .5, 3, 1./3],
                        [2, .5],
                        [2, .5]],
+        #还有anchor_steps代表的每一个feature map中的grid_cell相对于原图的像素比例，例如conv4_3为(38,38），300/38.0=7.89～=8
         anchor_steps=[8, 16, 32, 64, 100, 300],
         anchor_offset=0.5,
         normalizations=[20, -1, -1, -1, -1, -1],
@@ -303,7 +305,10 @@ def ssd_feat_shapes_from_net(predictions, default_shapes=None):
             feat_shapes.append(shape)
     return feat_shapes
 
-
+#这个函数可以得到每层的feature map中的每个feature map cell（简称为fmc）相对于原图的中心点的坐标
+#和相对于当前feature map的宽和高！！！注意h和w都是相对于当前feature map的！！！
+#可以得到(y/x).shape--->(g_c,g_c),(w/h).shape--->(n_g_c,)，别担心，后面通过tensor的操作可以转化为（g_c,g_c,n_g_c),这里假定‘后feature map’
+#的w和h相同，都为g_c,n_g_c代表当前这层所设置的每个grid_cell所对应的anchor的数量!
 def ssd_anchor_one_layer(img_shape,
                          feat_shape,
                          sizes,
@@ -358,7 +363,8 @@ def ssd_anchor_one_layer(img_shape,
         w[i+di] = sizes[0] / img_shape[1] * math.sqrt(r)
     return y, x, h, w
 
-
+#通过list的append操作，我们可以得到所有层的anchors的中心点坐标和相对当前“后feature map”的宽高！
+#layers_anchors=[(N*38*38*4),(N*19*19*6),(N*10*10*6),(N*5*5*6),(N*3*3*4),(N*1*1*4)]，list中我们标示的是tensor所对应的shape！
 def ssd_anchors_all_layers(img_shape,
                            layers_shape,
                            anchor_sizes,
@@ -398,7 +404,7 @@ def tensor_shape(x, rank=3):
         return [s if s is not None else d
                 for s, d in zip(static_shape, dynamic_shape)]
 
-
+#对conv4_3,conv7,conv8,conv9,conv10,conv11层分别进行再次3*3的conv操作，可以将其转化为
 def ssd_multibox_layer(inputs,
                        num_classes,
                        sizes,
@@ -415,12 +421,18 @@ def ssd_multibox_layer(inputs,
 
     # Location.
     num_loc_pred = num_anchors * 4
+    #对conv4_3,conv7,conv8,conv9,conv10,conv11中我们选定的某一层进行conv操作，注意filter的输出，
+    #这样我们可以转化为（N，g_c，g_c，nlp),注意nlp所代表的含义，即得到对应层的坐标预测输出！！！
+    #拿conv4_3举例，得到的feature map的shape为（N,38,38,256),这样转化之后可得为(N,38,38,4*4)～
     loc_pred = slim.conv2d(net, num_loc_pred, [3, 3], activation_fn=None,
                            scope='conv_loc')
     loc_pred = custom_layers.channel_to_last(loc_pred)
     loc_pred = tf.reshape(loc_pred,
                           tensor_shape(loc_pred, 4)[:-1]+[num_anchors, 4])
     # Class prediction.
+    #对conv4_3,conv7,conv8,conv9,conv10,conv11中我们选定的某一层进行conv操作，
+    #注意filter的输出，这样我们可以转化为（N,g_c,g_c,ncp),注意ncp所代表的含义,即得到对应曾的分类预测输出！
+    #拿conv4_3举例，得到的feature map的shape为（N,38,38,256),这样转化之后可得为(N,38,38,4*21)～
     num_cls_pred = num_anchors * num_classes
     cls_pred = slim.conv2d(net, num_cls_pred, [3, 3], activation_fn=None,
                            scope='conv_cls')
@@ -505,6 +517,12 @@ def ssd_net(inputs,
         end_points[end_point] = net
 
         # Prediction and localisations layers.
+        #对conv4_3,conv7,conv8,conv9,conv10,conv11中我们选定的某一层进行conv操作，
+        #得到对应层的分类预测和回归预测！
+        #这样可以得到predictions/logits的为
+        #[(n,38,38,4*21),(n,19,19,6*21),(n,10,10,6*21),(n,5,5,6*21),(n,3,3,4*21),(n,1,1,4*21)]，list中的每个元素代表的该tensor的shape
+        #localisations输出为
+        #[(n,38,38,4*4),(n,19,19,6*4),(n,10,10,6*4),(n,5,5,6*4),(n,3,3,4*4),(n,1,1,4*4)]，list中的每个元素代表的该tensor的shape
         predictions = []
         logits = []
         localisations = []
@@ -576,6 +594,7 @@ def ssd_arg_scope_caffe(caffe_scope):
 # =========================================================================== #
 # SSD loss function.
 # =========================================================================== #
+#暂时还没看懂这一块，看懂了再更新！！！
 def ssd_losses(logits, localisations,
                gclasses, glocalisations, gscores,
                match_threshold=0.5,
