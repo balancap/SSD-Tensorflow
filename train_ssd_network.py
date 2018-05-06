@@ -240,6 +240,7 @@ def main(_):
                                        out_shape=ssd_shape,
                                        data_format=DATA_FORMAT)
             # Encode groundtruth labels and bboxes.
+            #注意此时仅仅只送入了一张图片进去，only one！！！
             gclasses, glocalisations, gscores = \
                 ssd_net.bboxes_encode(glabels, gbboxes, ssd_anchors)
             batch_shape = [1] + [len(ssd_anchors)] * 3
