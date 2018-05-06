@@ -614,16 +614,24 @@ def ssd_losses(logits, localisations,
         fgscores = []
         flocalisations = []
         fglocalisations = []
+        #我们已经看过了上面的logits的输出，现在我们来看看loss中怎么进行处理的！
+        #因为logits/localisations这个list中有6个tensor，对应了6个不同层的预测/分类输出，
+        #这样没法处理，所以我们先进行flatten，而后concat，方便进行处理！
         for i in range(len(logits)):
+            #reshape之后，flogits中分别得到的shape为(N*5776,21),(N*1444,21),(N*600,21),(N*150,21),(N*36,21),(N*4,21)
+            #5776=38*38*4,即将logits[i] reshape成了shape[:-1],21
             flogits.append(tf.reshape(logits[i], [-1, num_classes]))
             fgclasses.append(tf.reshape(gclasses[i], [-1]))
             fgscores.append(tf.reshape(gscores[i], [-1]))
+            #reshape之后，flocalisations中分别得到的shape为(N*5776,4),(N*1444,4),(N*600,4),(N*150,4),(N*36,4),(N*4,4)
             flocalisations.append(tf.reshape(localisations[i], [-1, 4]))
             fglocalisations.append(tf.reshape(glocalisations[i], [-1, 4]))
         # And concat the crap!
+        #然后我们进行concat操作，这样就可以得到logits的shape为(8732*N,21)
         logits = tf.concat(flogits, axis=0)
         gclasses = tf.concat(fgclasses, axis=0)
         gscores = tf.concat(fgscores, axis=0)
+        #localisations的shape为(8732*N,4)
         localisations = tf.concat(flocalisations, axis=0)
         glocalisations = tf.concat(fglocalisations, axis=0)
         dtype = logits.dtype
