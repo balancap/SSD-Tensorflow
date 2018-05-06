@@ -188,6 +188,7 @@ class SSDNet(object):
                                       self.params.anchor_offset,
                                       dtype)
 
+    #使用ssd的anchors编码ground truth的label和bbox，对所有的特征层编码box
     def bboxes_encode(self, labels, bboxes, anchors,
                       scope=None):
         """Encode labels and bounding boxes.
