@@ -134,6 +134,9 @@ def tf_ssd_bboxes_encode_layer(labels,
         #注意tf.where函数的用法，https://blog.csdn.net/qq_19332527/article/details/78671280
         feat_scores = tf.where(mask, jaccard, feat_scores)
 
+        #fx=t*b+(1-t)*fx
+        #这种设置的原因在于，右边的fx（feat_**)代表的是以往的信息
+        #即代表
         feat_ymin = fmask * bbox[0] + (1 - fmask) * feat_ymin
         feat_xmin = fmask * bbox[1] + (1 - fmask) * feat_xmin
         feat_ymax = fmask * bbox[2] + (1 - fmask) * feat_ymax
