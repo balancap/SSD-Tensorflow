@@ -258,6 +258,7 @@ def distorted_bounding_box_crop(image,
 
 #实际上preprocess_for_train的原因在与缺少训练样本，我们进行处理之后可以增加训练样本，用于训练！
 #具体这一块可以参考：TensorFlow图像预处理完整样例　https://blog.8hfq.com/?p=455博客，有详细的记录！
+#对训练集的预处理！
 def preprocess_for_train(image, labels, bboxes,
                          out_shape, data_format='NHWC',
                          scope='ssd_preprocessing_train'):
@@ -265,7 +266,7 @@ def preprocess_for_train(image, labels, bboxes,
 
     Note that the actual resizing scale is sampled from
         [`resize_size_min`, `resize_size_max`].
-
+    ＃注意底下所给的参数和上面提供的参数不一致，因此我们在程序中关注它的实际参数就可以了！
     Args:
         image: A `Tensor` representing an image of arbitrary size.
         output_height: The height of the image after preprocessing.
@@ -299,15 +300,19 @@ def preprocess_for_train(image, labels, bboxes,
                                         min_object_covered=MIN_OBJECT_COVERED,
                                         aspect_ratio_range=CROP_RATIO_RANGE)
         # Resize image to output size.
+        #因为distorted_bounding_box_crop返回的图像我们都已经set_shape为了[None,None,3]，我们需要将其调整为网络所需要的输入大小，
+        #所以统一resize为out_shape大小！！！
         dst_image = tf_image.resize_image(dst_image, out_shape,
                                           method=tf.image.ResizeMethod.BILINEAR,
                                           align_corners=False)
         tf_summary_image(dst_image, bboxes, 'image_shape_distorted')
 
         # Randomly flip the image horizontally.
+        #随机左右翻转图像
         dst_image, bboxes = tf_image.random_flip_left_right(dst_image, bboxes)
 
         # Randomly distort the colors. There are 4 ways to do it.
+        #　使用一种随机的顺序调整图像的色彩！！！
         dst_image = apply_with_random_selector(
                 dst_image,
                 lambda x, ordering: distort_color(x, ordering, fast_mode),
@@ -315,14 +320,16 @@ def preprocess_for_train(image, labels, bboxes,
         tf_summary_image(dst_image, bboxes, 'image_color_distorted')
 
         # Rescale to VGG input scale.
+        # 注意dst_image的输出为0~1.0之间，我们需要进行调整恢复为０~255.0作为VGG网络的输入！
         image = dst_image * 255.
+        #对图像进行白化操作！
         image = tf_image_whitened(image, [_R_MEAN, _G_MEAN, _B_MEAN])
         # Image data format.
         if data_format == 'NCHW':
             image = tf.transpose(image, perm=(2, 0, 1))
         return image, labels, bboxes
 
-
+#对验证集的预处理！
 def preprocess_for_eval(image, labels, bboxes,
                         out_shape=EVAL_SIZE, data_format='NHWC',
                         difficults=None, resize=Resize.WARP_RESIZE,
