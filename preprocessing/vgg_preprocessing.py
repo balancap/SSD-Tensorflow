@@ -226,7 +226,8 @@ def _mean_image_subtraction(image, means):
     num_channels = image.get_shape().as_list()[-1]
     if len(means) != num_channels:
         raise ValueError('len(means) must match the number of channels')
-
+    #tf.split函数的作用：将后面tensor按照第几个维度划分成几个tensor，注意划分后的tensor的维度可以不同，所num_channels如果是数字，那就都相同，
+    #为数组的时候一般是不同的，如原来shape[2]为4，现在num_channels=[1,2,1]那么就不同，如果为[1,1,1,1]则等价于num_channels=4.
     channels = tf.split(2, num_channels, image)
     for i in range(num_channels):
         channels[i] -= means[i]
