@@ -329,7 +329,8 @@ def preprocess_for_train(image, labels, bboxes,
             image = tf.transpose(image, perm=(2, 0, 1))
         return image, labels, bboxes
 
-#对验证集的预处理！
+#对验证集的预处理！可以看出image为任意大小的图片，但是呢，仅仅只有一张，an image而已，所以我们可以看出tf_image.resize_image_bboxes_with_crop_or_pad
+#输入的图片只是一个而已，shape为[None,None,3]
 def preprocess_for_eval(image, labels, bboxes,
                         out_shape=EVAL_SIZE, data_format='NHWC',
                         difficults=None, resize=Resize.WARP_RESIZE,
