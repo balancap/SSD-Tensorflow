@@ -119,7 +119,12 @@ def apply_with_random_selector(x, func, num_cases):
             func(control_flow_ops.switch(x, tf.equal(sel, case))[1], case)
             for case in range(num_cases)])[0]
 
+#通过下面的两种操作，程序可以通过一张训练图衍生出许多训练样本，通过将训练图像进行预处理，训练得到的神经网络模型可以识别不同大小，方位，色彩等方面的实体。
+#操作包括：distort_color和distorted_bounding_box_crop两个操作
+#通过下面两种设置然后我们将可以得到很多的训练样本，要不真是的训练样本实际是不够的！
 
+#distort_color用于随机的调整图像的色彩，调整亮度，对比度，饱和色相的顺序会影响最后的结果，
+#定义多种不同的顺序，随机选择，可以进一步降低无关因素对模型的影响
 def distort_color(image, color_ordering=0, fast_mode=True, scope=None):
     """Distort the color of a Tensor image.
 
@@ -173,6 +178,9 @@ def distort_color(image, color_ordering=0, fast_mode=True, scope=None):
         return tf.clip_by_value(image, 0.0, 1.0)
 
 
+
+#对图片进行预处理，将图片转化成神经网络的输入层数据。
+#表示随机裁剪图片，仅仅生成一个cropped_image
 def distorted_bounding_box_crop(image,
                                 labels,
                                 bboxes,
@@ -182,11 +190,14 @@ def distorted_bounding_box_crop(image,
                                 max_attempts=200,
                                 clip_bboxes=True,
                                 scope=None):
-    """Generates cropped_image using a one of the bboxes randomly distorted.
+    """
+    #注意这个函数的解析表明的是使用其中一个随机扭曲的bbox生成cropped_image
+    Generates cropped_image using a one of the bboxes randomly distorted.
 
     See `tf.image.sample_distorted_bounding_box` for more documentation.
 
     Args:
+        #观察这些参数可以发现，这个函数实际是对一张图片的多个gt bbox中随机选择一个（暂时理解为ground truth bbox）进行随机扭曲，返回cropped_image和bbox等等
         image: 3-D Tensor of image (it will be converted to floats in [0, 1]).
         bbox: 3-D float Tensor of bounding boxes arranged [1, num_boxes, coords]
             where each coordinate is [0, 1) and the coordinates are arranged
@@ -203,12 +214,21 @@ def distorted_bounding_box_crop(image,
             region of the image of the specified constraints. After `max_attempts`
             failures, return the entire image.
         scope: Optional scope for name_scope.
+    #注意返回值是一个tuple，分别是cropped_image和distorted bbox，这个我们主要参考tf.image.sample_distorted_bounding_box的实现
     Returns:
         A tuple, a 3-D Tensor cropped_image and the distorted bbox
     """
     with tf.name_scope(scope, 'distorted_bounding_box_crop', [image, bboxes]):
         # Each bounding box has shape [1, num_boxes, box coords] and
         # the coordinates are ordered [ymin, xmin, ymax, xmax].
+        # 为什么要用sample_distorted_bounding_box的原因在于可以随机的截取图片中一个块，减小需要关注的物体大小对图像识别算法的影响
+        # tf.image.sample_distorted_bounding_box的讲解主要参考：https://blog.csdn.net/tz_zs/article/details/77920116
+        # 需要注意的是，返回值的类型为：
+        # begin： 和 image_size 具有相同的类型。包含 [offset_height, offset_width, 0] 的一维数组。作为 tf.slice 的输入。
+        # size： 和 image_size 具有相同的类型。包含 [target_height, target_width, -1] 的一维数组。作为 tf.slice 的输入。
+        # 根据begin，size两个参数我们可以tf.slice出来我们所需要的裁剪出来的小图，而bboxes主要用于在图像上面的显示bbox工作！！！
+        # 那么为什么bboxes的shape为[1,1,4]呢？是不是因为tf.image.sample_distorted_bounding_box函数仅裁出来了一个bbox呢？
+        # bboxes：shape为 [1, 1, 4] 的三维矩阵，数据类型为float32，表示随机变形后的边界框。作为 tf.image.draw_bounding_boxes 的输入。
         bbox_begin, bbox_size, distort_bbox = tf.image.sample_distorted_bounding_box(
                 tf.shape(image),
                 bounding_boxes=tf.expand_dims(bboxes, 0),
@@ -220,6 +240,8 @@ def distorted_bounding_box_crop(image,
         distort_bbox = distort_bbox[0, 0]
 
         # Crop the image to the specified bounding box.
+        # 注意tf.slice中的begin参数和size参数，begin.shape[-1]=0，size.shape[-1]=-1，可以由tf.image.sample_distorted_bouning_box中确定，
+        # 然后我们就可以从图像中裁剪我们所期望的小图！
         cropped_image = tf.slice(image, bbox_begin, bbox_size)
         # Restore the shape since the dynamic slice loses 3rd dimension.
         cropped_image.set_shape([None, None, 3])
@@ -229,9 +251,13 @@ def distorted_bounding_box_crop(image,
         labels, bboxes = tfe.bboxes_filter_overlap(labels, bboxes,
                                                    threshold=BBOX_CROP_OVERLAP,
                                                    assign_negative=False)
+        #注意我们的返回值cropped_image的shape为[None,None,３],不用担心，在后面preprocess_for_train中我们会怎样呢，对了没错，
+        #resize到ｓｓｄ所需要的大小，所以不用担心哈！
         return cropped_image, labels, bboxes, distort_bbox
 
 
+#实际上preprocess_for_train的原因在与缺少训练样本，我们进行处理之后可以增加训练样本，用于训练！
+#具体这一块可以参考：TensorFlow图像预处理完整样例　https://blog.8hfq.com/?p=455博客，有详细的记录！
 def preprocess_for_train(image, labels, bboxes,
                          out_shape, data_format='NHWC',
                          scope='ssd_preprocessing_train'):
