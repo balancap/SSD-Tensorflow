@@ -273,6 +273,9 @@ def tf_ssd_bboxes_decode(feat_localizations,
 # SSD boxes selection.
 # =========================================================================== #
 #针对每一层的predictions_layer和localizations_layer进行挑选候选框和对应的位置信息！
+#注意此时传入的predictions_layer和localizations_layer这些Tensor的维度是5维度，
+#例如conv4的predictions_layer的shape为（batch，38，38，4，21），localizations_layer的shape为（batch，38，38，4，4）
+#不用太在意维度了，因为在里面我们都会reshape的，然后进行转化！
 def tf_ssd_bboxes_select_layer(predictions_layer, localizations_layer,
                                select_threshold=None,
                                num_classes=21,
@@ -295,11 +298,11 @@ def tf_ssd_bboxes_select_layer(predictions_layer, localizations_layer,
                        [predictions_layer, localizations_layer]):
         # Reshape features: Batches x N x N_labels | 4
         p_shape = tfe.get_shape(predictions_layer)
-        #reshape之后predictioN_layer的shape转变为(batch,n*n,num_classes)
+        #reshape之后predictioN_layer的shape转变为(batch,n*n*num_layer_anchors,num_classes)
         predictions_layer = tf.reshape(predictions_layer,
                                        tf.stack([p_shape[0], -1, p_shape[-1]]))
         l_shape = tfe.get_shape(localizations_layer)
-        #reshape之后localizations_layer的shape转化为(batch,n*n,4)
+        #reshape之后localizations_layer的shape转化为(batch,n*n*num_layer_anchors,4)
         localizations_layer = tf.reshape(localizations_layer,
                                          tf.stack([l_shape[0], -1, l_shape[-1]]))
 
@@ -308,7 +311,7 @@ def tf_ssd_bboxes_select_layer(predictions_layer, localizations_layer,
         for c in range(0, num_classes):
             if c != ignore_class:
                 # Remove boxes under the threshold.
-                # 拿到每个预测类的得分，shapes的shape为(batch,n,n),predictions_layer的shape为（batch,n,n,num_classes)
+                # 拿到每个预测类的得分，shapes的shape为(batch,n*n*num_layer_anchors),predictions_layer的shape为（batch,n*n*num_layer_anchors,num_classes)
                 scores = predictions_layer[:, :, c]
                 # 转化，根据该得分判断是否需要保留bboxes，小于select_threshold的候选框都被丢弃
                 fmask = tf.cast(tf.greater_equal(scores, select_threshold), scores.dtype)
