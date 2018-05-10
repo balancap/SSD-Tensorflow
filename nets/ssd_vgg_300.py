@@ -594,7 +594,6 @@ def ssd_arg_scope_caffe(caffe_scope):
 # =========================================================================== #
 # SSD loss function.
 # =========================================================================== #
-#暂时还没看懂这一块，看懂了再更新！！！
 def ssd_losses(logits, localisations,
                gclasses, glocalisations, gscores,
                match_threshold=0.5,
@@ -666,12 +665,15 @@ def ssd_losses(logits, localisations,
         with tf.name_scope('cross_entropy_pos'):
             loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits,
                                                                   labels=gclasses)
+            #注意我们求得的正负样本，然后就可以计算相应的损失了，注意losses*fpmask，这样就可以计算正样本的损失了！！！
             loss = tf.div(tf.reduce_sum(loss * fpmask), batch_size, name='value')
+            
             tf.losses.add_loss(loss)
 
         with tf.name_scope('cross_entropy_neg'):
             loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits,
                                                                   labels=no_classes)
+            #注意losses*fnmask，这样就可以计算负样本的损失了！！！
             loss = tf.div(tf.reduce_sum(loss * fnmask), batch_size, name='value')
             tf.losses.add_loss(loss)
 
@@ -683,7 +685,8 @@ def ssd_losses(logits, localisations,
             loss = tf.div(tf.reduce_sum(loss * weights), batch_size, name='value')
             tf.losses.add_loss(loss)
 
-
+#这个函数更容易理解，因为根据iou值得到正负样本，然后再来训练ssd网络，loss函数的求解方法：
+#针对分类损失，我们分为两个，分别是正样本的损失和负样本的损失，保持正负样本的比例为1:3，得到的效果最好，在这里我们有tf.losses.compute_weighted_loss体现
 def ssd_losses_old(logits, localisations,
                    gclasses, glocalisations, gscores,
                    match_threshold=0.5,
