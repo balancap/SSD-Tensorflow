@@ -18,6 +18,9 @@ import numpy as np
 import tensorflow as tf
 import tf_extended as tfe
 
+#注意tf_ssd_bboxes_encode和tf_ssd_bboxes_select的区别
+#前者是用来判断anchor和实际的ground truth的交集，进而编码每个anchor的classes，bboxes和scores，用于训练；
+#后者则是用来从训练好的模型预测图片的输出predictions，localizations中挑选比较靠谱的预测值，用来做结果的可视化；
 
 # =========================================================================== #
 # TensorFlow implementation of boxes SSD encoding / decoding.
