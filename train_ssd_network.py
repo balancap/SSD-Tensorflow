@@ -267,10 +267,23 @@ def main(_):
             """Allows data parallelism by creating multiple
             clones of network_fn."""
             # Dequeue batch.
+            
+            '''
+            ssd的核心代码在这一块，我们可以看到
+            1)编码真实的标签，相当于y_label:gclasses, glocalisations, gscores = \
+                ssd_net.bboxes_encode(glabels, gbboxes, ssd_anchors)
+            2) b_image, b_gclasses, b_glocalisations, b_gscores = \
+                tf_utils.reshape_list(batch_queue.dequeue(), batch_shape)
+            3)得到输出，相当于得到y_pred: predictions, localisations, logits, end_points = \
+                    ssd_net.net(b_image, is_training=True)
+            4)计算损失： predictions, localisations, logits, end_points = \
+                    ssd_net.net(b_image, is_training=True)
+            '''
             b_image, b_gclasses, b_glocalisations, b_gscores = \
                 tf_utils.reshape_list(batch_queue.dequeue(), batch_shape)
 
             # Construct SSD network.
+            
             arg_scope = ssd_net.arg_scope(weight_decay=FLAGS.weight_decay,
                                           data_format=DATA_FORMAT)
             with slim.arg_scope(arg_scope):
