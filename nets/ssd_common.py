@@ -132,11 +132,13 @@ def tf_ssd_bboxes_encode_layer(labels,
         #注意针对feat_labels或者feat_scores的更新，我们是不断迭代完成的！！！
         feat_labels = imask * label + (1 - imask) * feat_labels
         #注意tf.where函数的用法，https://blog.csdn.net/qq_19332527/article/details/78671280
+        #当x,y都没给定的时候，我们就根据condtion来选择输出，condition为True的时候输出对应的坐标！
+        #when x,y are not None,we choose x's values or y's values to output according to condition,
+        #when condition is True,we choose x's values,else we choose y's value!
         feat_scores = tf.where(mask, jaccard, feat_scores)
 
         #fx=t*b+(1-t)*fx
         #这种设置的原因在于，右边的fx（feat_**)代表的是以往的信息
-        #即代表
         feat_ymin = fmask * bbox[0] + (1 - fmask) * feat_ymin
         feat_xmin = fmask * bbox[1] + (1 - fmask) * feat_xmin
         feat_ymax = fmask * bbox[2] + (1 - fmask) * feat_ymax
