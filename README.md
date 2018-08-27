@@ -156,7 +156,7 @@ python train_ssd_network.py \
     --dataset_split_name=train \
     --model_name=ssd_300_vgg \
     --checkpoint_path=${CHECKPOINT_PATH} \
-    --checkpoint_model_scope=vgg_16 \
+    --checkpoint_model_scope=ssd_300_vgg \
     --save_summaries_secs=60 \
     --save_interval_secs=600 \
     --weight_decay=0.0005 \
