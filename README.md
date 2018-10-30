@@ -1,5 +1,6 @@
 # 参考：https://zhuanlan.zhihu.com/p/33544892 讲解，注意SSD是属于Faster RCNN那一挂的，都有设置先验框，然后预测的仅仅只是偏移而已～
 # SSD: Single Shot MultiBox Detector in TensorFlow
+## 参考py-faster-rcnn的设置，可以发现其滤除的是confidence score小于0.05和nms thresh>0.3的值，然后生成检测文件～
 
 
 SSD is an unified framework for object detection with a single network. It has been originally introduced in this research [article](http://arxiv.org/abs/1512.02325).
