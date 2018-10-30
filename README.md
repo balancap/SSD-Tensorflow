@@ -1,6 +1,7 @@
 # 参考：https://zhuanlan.zhihu.com/p/33544892 讲解
 # SSD: Single Shot MultiBox Detector in TensorFlow
 
+
 SSD is an unified framework for object detection with a single network. It has been originally introduced in this research [article](http://arxiv.org/abs/1512.02325).
 
 This repository contains a TensorFlow re-implementation of the original [Caffe code](https://github.com/weiliu89/caffe/tree/ssd). At present, it only implements VGG-based SSD networks (with 300 and 512 inputs), but the architecture of the project is modular, and should make easy the implementation and training of other SSD variants (ResNet or Inception based for instance). Present TF checkpoints have been directly converted from SSD Caffe models.
@@ -26,7 +27,13 @@ and then start a jupyter notebook with
 ```bash
 jupyter notebook notebooks/ssd_notebook.ipynb
 ```
+## 预测流程
 
+1、根据置信度确定其类别（置信度最大的为对应的类别），滤除背景类别及其置信度小于阈值的预测框；
+2、根据先验框和预测的偏移还原回预测框，同时clip操作，防止预测框超出图片；
+3、根据置信度对预测框由大到小进行排序，选择top-k个预测框；
+4、运行NMS算法，设置NMS阈值，滤除掉那些重叠较大的框，得到最后的预测框；
+### 注意NMS算法有两种理解，针对每一类进行NMS和针对所有类别进行NMS操作～
 
 ## Datasets
 
