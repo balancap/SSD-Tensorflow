@@ -163,6 +163,7 @@ def bboxes_crop_or_pad(bboxes,
         return bboxes
 
 
+#通过中心裁剪或者填充将图片的shape设置为[target_height,target_width,channel]
 def resize_image_bboxes_with_crop_or_pad(image, bboxes,
                                          target_height, target_width):
     """Crops and/or pads an image to a target width and height.
@@ -231,8 +232,11 @@ def resize_image_bboxes_with_crop_or_pad(image, bboxes,
         offset_pad_height = max_(height_diff // 2, 0)
 
         # Maybe crop if needed.
+        # 提供的图片大于target_height,target_width,因此我们进行裁剪
         height_crop = min_(target_height, height)
         width_crop = min_(target_width, width)
+        #tf.image.crop_to_bounding_box中的offset_crop_height, offset_crop_width是相对于left-top处的偏移
+        #height_crop,width_crop是要截取的高和宽，因为crop_to_bounding_box是height,width进行输出的，因此我们使用这种形式！！！
         cropped = tf.image.crop_to_bounding_box(image, offset_crop_height, offset_crop_width,
                                                 height_crop, width_crop)
         bboxes = bboxes_crop_or_pad(bboxes,
@@ -240,6 +244,11 @@ def resize_image_bboxes_with_crop_or_pad(image, bboxes,
                                     -offset_crop_height, -offset_crop_width,
                                     height_crop, width_crop)
         # Maybe pad if needed.
+        #如果提供的图片的宽高小于height,width的话，我们需要进行填充操作
+        '''Adds `offset_height` rows of zeros on top, `offset_width` columns of
+        zeros on the left, and then pads the image on the bottom and right
+        with zeros until it has dimensions `target_height`, `target_width`.'''
+
         resized = tf.image.pad_to_bounding_box(cropped, offset_pad_height, offset_pad_width,
                                                target_height, target_width)
         bboxes = bboxes_crop_or_pad(bboxes,

@@ -1,0 +1,2 @@
+关于目标检测相关的东西，标准的检测方案如下：
+http://host.robots.ox.ac.uk/pascal/VOC/voc2012/htmldoc/devkit_doc.html#SECTION00044000000000000000

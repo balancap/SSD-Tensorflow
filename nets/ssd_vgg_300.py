@@ -91,6 +91,7 @@ class SSDNet(object):
       conv11 ==> 1 x 1
     The default image size used to train this network is 300x300.
     """
+    #注意每个参数多代表的含义，注意这儿的anchor_size_bounds和anchor_sizes不匹配，因为根据anchor_sizes的比例，我们可以得到Smin和Smax为[0.07,0.87]
     default_params = SSDParams(
         img_shape=(300, 300),
         num_classes=21,
@@ -117,6 +118,7 @@ class SSDNet(object):
                        [2, .5, 3, 1./3],
                        [2, .5],
                        [2, .5]],
+        #还有anchor_steps代表的每一个feature map中的grid_cell相对于原图的像素比例，例如conv4_3为(38,38），300/38.0=7.89～=8
         anchor_steps=[8, 16, 32, 64, 100, 300],
         anchor_offset=0.5,
         normalizations=[20, -1, -1, -1, -1, -1],
@@ -188,6 +190,7 @@ class SSDNet(object):
                                       self.params.anchor_offset,
                                       dtype)
 
+    #使用ssd的anchors编码ground truth的label和bbox，对所有的特征层编码box
     def bboxes_encode(self, labels, bboxes, anchors,
                       scope=None):
         """Encode labels and bounding boxes.
@@ -302,7 +305,10 @@ def ssd_feat_shapes_from_net(predictions, default_shapes=None):
             feat_shapes.append(shape)
     return feat_shapes
 
-
+#这个函数可以得到每层的feature map中的每个feature map cell（简称为fmc）相对于原图的中心点的坐标
+#和相对于当前feature map的宽和高！！！注意h和w都是相对于当前feature map的！！！
+#可以得到(y/x).shape--->(g_c,g_c),(w/h).shape--->(n_g_c,)，别担心，后面通过tensor的操作可以转化为（g_c,g_c,n_g_c),这里假定‘后feature map’
+#的w和h相同，都为g_c,n_g_c代表当前这层所设置的每个grid_cell所对应的anchor的数量!
 def ssd_anchor_one_layer(img_shape,
                          feat_shape,
                          sizes,
@@ -357,7 +363,8 @@ def ssd_anchor_one_layer(img_shape,
         w[i+di] = sizes[0] / img_shape[1] * math.sqrt(r)
     return y, x, h, w
 
-
+#通过list的append操作，我们可以得到所有层的anchors的中心点坐标和相对当前“后feature map”的宽高！
+#layers_anchors=[(N*38*38*4),(N*19*19*6),(N*10*10*6),(N*5*5*6),(N*3*3*4),(N*1*1*4)]，list中我们标示的是tensor所对应的shape！
 def ssd_anchors_all_layers(img_shape,
                            layers_shape,
                            anchor_sizes,
@@ -397,7 +404,7 @@ def tensor_shape(x, rank=3):
         return [s if s is not None else d
                 for s, d in zip(static_shape, dynamic_shape)]
 
-
+#对conv4_3,conv7,conv8,conv9,conv10,conv11层分别进行再次3*3的conv操作，可以将其转化为
 def ssd_multibox_layer(inputs,
                        num_classes,
                        sizes,
@@ -414,12 +421,18 @@ def ssd_multibox_layer(inputs,
 
     # Location.
     num_loc_pred = num_anchors * 4
+    #对conv4_3,conv7,conv8,conv9,conv10,conv11中我们选定的某一层进行conv操作，注意filter的输出，
+    #这样我们可以转化为（N，g_c，g_c，nlp),注意nlp所代表的含义，即得到对应层的坐标预测输出！！！
+    #拿conv4_3举例，得到的feature map的shape为（N,38,38,256),这样转化之后可得为(N,38,38,4*4)～
     loc_pred = slim.conv2d(net, num_loc_pred, [3, 3], activation_fn=None,
                            scope='conv_loc')
     loc_pred = custom_layers.channel_to_last(loc_pred)
     loc_pred = tf.reshape(loc_pred,
                           tensor_shape(loc_pred, 4)[:-1]+[num_anchors, 4])
     # Class prediction.
+    #对conv4_3,conv7,conv8,conv9,conv10,conv11中我们选定的某一层进行conv操作，
+    #注意filter的输出，这样我们可以转化为（N,g_c,g_c,ncp),注意ncp所代表的含义,即得到对应曾的分类预测输出！
+    #拿conv4_3举例，得到的feature map的shape为（N,38,38,256),这样转化之后可得为(N,38,38,4*21)～
     num_cls_pred = num_anchors * num_classes
     cls_pred = slim.conv2d(net, num_cls_pred, [3, 3], activation_fn=None,
                            scope='conv_cls')
@@ -504,6 +517,12 @@ def ssd_net(inputs,
         end_points[end_point] = net
 
         # Prediction and localisations layers.
+        #对conv4_3,conv7,conv8,conv9,conv10,conv11中我们选定的某一层进行conv操作，
+        #得到对应层的分类预测和回归预测！
+        #这样可以得到predictions/logits的为
+        #[(n,38,38,4*21),(n,19,19,6*21),(n,10,10,6*21),(n,5,5,6*21),(n,3,3,4*21),(n,1,1,4*21)]，list中的每个元素代表的该tensor的shape
+        #localisations输出为
+        #[(n,38,38,4*4),(n,19,19,6*4),(n,10,10,6*4),(n,5,5,6*4),(n,3,3,4*4),(n,1,1,4*4)]，list中的每个元素代表的该tensor的shape
         predictions = []
         logits = []
         localisations = []
@@ -594,16 +613,24 @@ def ssd_losses(logits, localisations,
         fgscores = []
         flocalisations = []
         fglocalisations = []
+        #我们已经看过了上面的logits的输出，现在我们来看看loss中怎么进行处理的！
+        #因为logits/localisations这个list中有6个tensor，对应了6个不同层的预测/分类输出，
+        #这样没法处理，所以我们先进行flatten，而后concat，方便进行处理！
         for i in range(len(logits)):
+            #reshape之后，flogits中分别得到的shape为(N*5776,21),(N*1444,21),(N*600,21),(N*150,21),(N*36,21),(N*4,21)
+            #5776=38*38*4,即将logits[i] reshape成了shape[:-1],21
             flogits.append(tf.reshape(logits[i], [-1, num_classes]))
             fgclasses.append(tf.reshape(gclasses[i], [-1]))
             fgscores.append(tf.reshape(gscores[i], [-1]))
+            #reshape之后，flocalisations中分别得到的shape为(N*5776,4),(N*1444,4),(N*600,4),(N*150,4),(N*36,4),(N*4,4)
             flocalisations.append(tf.reshape(localisations[i], [-1, 4]))
             fglocalisations.append(tf.reshape(glocalisations[i], [-1, 4]))
         # And concat the crap!
+        #然后我们进行concat操作，这样就可以得到logits的shape为(8732*N,21)
         logits = tf.concat(flogits, axis=0)
         gclasses = tf.concat(fgclasses, axis=0)
         gscores = tf.concat(fgscores, axis=0)
+        #localisations的shape为(8732*N,4)
         localisations = tf.concat(flocalisations, axis=0)
         glocalisations = tf.concat(fglocalisations, axis=0)
         dtype = logits.dtype
@@ -638,12 +665,15 @@ def ssd_losses(logits, localisations,
         with tf.name_scope('cross_entropy_pos'):
             loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits,
                                                                   labels=gclasses)
+            #注意我们求得的正负样本，然后就可以计算相应的损失了，注意losses*fpmask，这样就可以计算正样本的损失了！！！
             loss = tf.div(tf.reduce_sum(loss * fpmask), batch_size, name='value')
+            
             tf.losses.add_loss(loss)
 
         with tf.name_scope('cross_entropy_neg'):
             loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits,
                                                                   labels=no_classes)
+            #注意losses*fnmask，这样就可以计算负样本的损失了！！！
             loss = tf.div(tf.reduce_sum(loss * fnmask), batch_size, name='value')
             tf.losses.add_loss(loss)
 
@@ -655,7 +685,8 @@ def ssd_losses(logits, localisations,
             loss = tf.div(tf.reduce_sum(loss * weights), batch_size, name='value')
             tf.losses.add_loss(loss)
 
-
+#这个函数更容易理解，因为根据iou值得到正负样本，然后再来训练ssd网络，loss函数的求解方法：
+#针对分类损失，我们分为两个，分别是正样本的损失和负样本的损失，保持正负样本的比例为1:3，得到的效果最好，在这里我们有tf.losses.compute_weighted_loss体现
 def ssd_losses_old(logits, localisations,
                    gclasses, glocalisations, gscores,
                    match_threshold=0.5,

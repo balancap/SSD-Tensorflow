@@ -18,6 +18,9 @@ import numpy as np
 import tensorflow as tf
 import tf_extended as tfe
 
+#注意tf_ssd_bboxes_encode和tf_ssd_bboxes_select的区别
+#前者是用来判断anchor和实际的ground truth的交集，进而编码每个anchor的classes，bboxes和scores，用于训练；
+#后者则是用来从训练好的模型预测图片的输出predictions，localizations中挑选比较靠谱的预测值，用来做结果的可视化；
 
 # =========================================================================== #
 # TensorFlow implementation of boxes SSD encoding / decoding.
@@ -44,7 +47,10 @@ def tf_ssd_bboxes_encode_layer(labels,
       (target_labels, target_localizations, target_scores): Target Tensors.
     """
     # Anchors coordinates and volume.
+    #这儿我们拿conv4_3层的参数进行举例，方便理解
+    #yref.shape:(38,38),xref.shape:(38,38),href.shape:(4,),wref.shape:(4,)
     yref, xref, href, wref = anchors_layer
+    #这样经过运算，这下我们得到的就是(y_min/y_max).shape:(38,38,4),(x_min/x_max).shape:(38,38,4)
     ymin = yref - href / 2.
     xmin = xref - wref / 2.
     ymax = yref + href / 2.
@@ -52,6 +58,7 @@ def tf_ssd_bboxes_encode_layer(labels,
     vol_anchors = (xmax - xmin) * (ymax - ymin)
 
     # Initialize tensors...
+    #同样拿conv4_3层进行举例，可得shape=(38,38,4)
     shape = (yref.shape[0], yref.shape[1], href.size)
     feat_labels = tf.zeros(shape, dtype=tf.int64)
     feat_scores = tf.zeros(shape, dtype=dtype)
@@ -61,6 +68,7 @@ def tf_ssd_bboxes_encode_layer(labels,
     feat_ymax = tf.ones(shape, dtype=dtype)
     feat_xmax = tf.ones(shape, dtype=dtype)
 
+    #同样拿conv4_3举例，经过运算，我们得到的jaccard矩阵的shape为(38,38,4)，它得到的值在（0.0～1.0）之间，代表anchor和ground truth box的iou
     def jaccard_with_anchors(bbox):
         """Compute jaccard score between a box and the anchors.
         """
@@ -100,25 +108,40 @@ def tf_ssd_bboxes_encode_layer(labels,
     def body(i, feat_labels, feat_scores,
              feat_ymin, feat_xmin, feat_ymax, feat_xmax):
         """Body: update feature labels, scores and bboxes.
+        #意思是当iou大于0.5的时候，我们就对其进行赋值，但是什么时候才更新呢，直到该anchor与所有ground truth box求得的最大的值进行赋值！
         Follow the original SSD paper for that purpose:
           - assign values when jaccard > 0.5;
           - only update if beat the score of other bboxes.
         """
         # Jaccard score.
+        #注意此时代表的是一张图片中的几个ground truth，只有几个啦，然后一个anchor就可以对应一个ground truth或者不对应，一个ground truth可以对应多个anchor！
+        #label代表当前的ground truth box的label，因为cond，body的设置，我们可以看到，是用所有的anchors和第i个ground truth box进行
+        #计算，最后得到feat_labels,feat_locations,feat_scores
         label = labels[i]
         bbox = bboxes[i]
         jaccard = jaccard_with_anchors(bbox)
         # Mask: check threshold + scores + no annotations + num_classes.
+        # mask.shape:(gc,gc,n_gc),bool型
         mask = tf.greater(jaccard, feat_scores)
         # mask = tf.logical_and(mask, tf.greater(jaccard, matching_threshold))
         mask = tf.logical_and(mask, feat_scores > -0.5)
         mask = tf.logical_and(mask, label < num_classes)
+        #这两个分别是干什么的？？？一个tf.int64,可以看做xijp,那么另一个tf.float32呢，也就是fmask是干什么的东东？
+        #int型shape:(gc,gc,n_gc)
         imask = tf.cast(mask, tf.int64)
+        #float型shape:(gc,gc,n_gc)
         fmask = tf.cast(mask, dtype)
         # Update values using mask.
+        #注意针对feat_labels或者feat_scores的更新，我们是不断迭代完成的！！！
         feat_labels = imask * label + (1 - imask) * feat_labels
+        #注意tf.where函数的用法，https://blog.csdn.net/qq_19332527/article/details/78671280
+        #当x,y都没给定的时候，我们就根据condtion来选择输出，condition为True的时候输出对应的坐标！
+        #when x,y are not None,we choose x's values or y's values to output according to condition,
+        #when condition is True,we choose x's values,else we choose y's value!
         feat_scores = tf.where(mask, jaccard, feat_scores)
 
+        #fx=t*b+(1-t)*fx
+        #这种设置的原因在于，右边的fx（feat_**)代表的是以往的信息
         feat_ymin = fmask * bbox[0] + (1 - fmask) * feat_ymin
         feat_xmin = fmask * bbox[1] + (1 - fmask) * feat_xmin
         feat_ymax = fmask * bbox[2] + (1 - fmask) * feat_ymax
@@ -142,11 +165,13 @@ def tf_ssd_bboxes_encode_layer(labels,
                                             feat_ymin, feat_xmin,
                                             feat_ymax, feat_xmax])
     # Transform to center / size.
+    #计算补偿后的中心
     feat_cy = (feat_ymax + feat_ymin) / 2.
     feat_cx = (feat_xmax + feat_xmin) / 2.
     feat_h = feat_ymax - feat_ymin
     feat_w = feat_xmax - feat_xmin
     # Encode features.
+    
     feat_cy = (feat_cy - yref) / href / prior_scaling[0]
     feat_cx = (feat_cx - xref) / wref / prior_scaling[1]
     feat_h = tf.log(feat_h / href) / prior_scaling[2]
@@ -252,6 +277,10 @@ def tf_ssd_bboxes_decode(feat_localizations,
 # =========================================================================== #
 # SSD boxes selection.
 # =========================================================================== #
+#针对每一层的predictions_layer和localizations_layer进行挑选候选框和对应的位置信息！
+#注意此时传入的predictions_layer和localizations_layer这些Tensor的维度是5维度，
+#例如conv4的predictions_layer的shape为（batch，38，38，4，21），localizations_layer的shape为（batch，38，38，4，4）
+#不用太在意维度了，因为在里面我们都会reshape的，然后进行转化！
 def tf_ssd_bboxes_select_layer(predictions_layer, localizations_layer,
                                select_threshold=None,
                                num_classes=21,
@@ -274,9 +303,11 @@ def tf_ssd_bboxes_select_layer(predictions_layer, localizations_layer,
                        [predictions_layer, localizations_layer]):
         # Reshape features: Batches x N x N_labels | 4
         p_shape = tfe.get_shape(predictions_layer)
+        #reshape之后predictioN_layer的shape转变为(batch,n*n*num_layer_anchors,num_classes)
         predictions_layer = tf.reshape(predictions_layer,
                                        tf.stack([p_shape[0], -1, p_shape[-1]]))
         l_shape = tfe.get_shape(localizations_layer)
+        #reshape之后localizations_layer的shape转化为(batch,n*n*num_layer_anchors,4)
         localizations_layer = tf.reshape(localizations_layer,
                                          tf.stack([l_shape[0], -1, l_shape[-1]]))
 
@@ -285,9 +316,13 @@ def tf_ssd_bboxes_select_layer(predictions_layer, localizations_layer,
         for c in range(0, num_classes):
             if c != ignore_class:
                 # Remove boxes under the threshold.
+                # 拿到每个预测类的得分，shapes的shape为(batch,n*n*num_layer_anchors),predictions_layer的shape为（batch,n*n*num_layer_anchors,num_classes)
                 scores = predictions_layer[:, :, c]
+                # 转化，根据该得分判断是否需要保留bboxes，小于select_threshold的候选框都被丢弃
                 fmask = tf.cast(tf.greater_equal(scores, select_threshold), scores.dtype)
+                #小于select_threshold的scores都设置为0,
                 scores = scores * fmask
+                #小于select_threshold的bboxes都设置为0，
                 bboxes = localizations_layer * tf.expand_dims(fmask, axis=-1)
                 # Append to dictionary.
                 d_scores[c] = scores

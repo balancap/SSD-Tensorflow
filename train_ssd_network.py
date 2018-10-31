@@ -229,6 +229,8 @@ def main(_):
                     common_queue_min=10 * FLAGS.batch_size,
                     shuffle=True)
             # Get for SSD network: image, labels, bboxes.
+            #slim.dataset_data_provider.DatasetDataProvider解读，https://blog.csdn.net/weixin_35653315/article/details/71023596
+            #一次只返回一个img，需要组成batch进行训练！！！
             [image, shape, glabels, gbboxes] = provider.get(['image', 'shape',
                                                              'object/label',
                                                              'object/bbox'])
@@ -238,6 +240,7 @@ def main(_):
                                        out_shape=ssd_shape,
                                        data_format=DATA_FORMAT)
             # Encode groundtruth labels and bboxes.
+            #注意此时仅仅只送入了一张图片进去，only one！！！
             gclasses, glocalisations, gscores = \
                 ssd_net.bboxes_encode(glabels, gbboxes, ssd_anchors)
             batch_shape = [1] + [len(ssd_anchors)] * 3
@@ -264,10 +267,23 @@ def main(_):
             """Allows data parallelism by creating multiple
             clones of network_fn."""
             # Dequeue batch.
+            
+            '''
+            ssd的核心代码在这一块，我们可以看到
+            1)编码真实的标签，相当于y_label:gclasses, glocalisations, gscores = \
+                ssd_net.bboxes_encode(glabels, gbboxes, ssd_anchors)
+            2) b_image, b_gclasses, b_glocalisations, b_gscores = \
+                tf_utils.reshape_list(batch_queue.dequeue(), batch_shape)
+            3)得到输出，相当于得到y_pred: predictions, localisations, logits, end_points = \
+                    ssd_net.net(b_image, is_training=True)
+            4)计算损失： predictions, localisations, logits, end_points = \
+                    ssd_net.net(b_image, is_training=True)
+            '''
             b_image, b_gclasses, b_glocalisations, b_gscores = \
                 tf_utils.reshape_list(batch_queue.dequeue(), batch_shape)
 
             # Construct SSD network.
+            
             arg_scope = ssd_net.arg_scope(weight_decay=FLAGS.weight_decay,
                                           data_format=DATA_FORMAT)
             with slim.arg_scope(arg_scope):
